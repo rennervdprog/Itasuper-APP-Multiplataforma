@@ -16,7 +16,10 @@ enum class AppScreen(val route: String, val title: String) {
     SEARCH("busca", "Descobrir"),
     ORDERS("pedidos", "Pedidos"),
     NOTIFICATIONS("notificacoes", "Avisos"),
-    PROFILE("perfil", "Perfil")
+    PROFILE("perfil", "Perfil"),
+    // Fase 3d: tela de login/cadastro. Não entra na bottom bar (NAV_ITEMS),
+    // é exibida em tela cheia pelo App quando não há sessão ativa.
+    AUTH("auth", "Entrar")
 }
 
 /**
