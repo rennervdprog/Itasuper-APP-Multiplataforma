@@ -267,7 +267,7 @@ fun CheckoutScreen(
                             PaymentSelectionCard(
                                 method = method,
                                 selected = cart.paymentMethod == method,
-                                onClick = { cart.setPaymentMethod(method) }
+                                onClick = { cart.selectPaymentMethod(method) }
                             )
                         }
 
@@ -291,7 +291,7 @@ fun CheckoutScreen(
                             ) {
                                 Checkbox(
                                     checked = cart.needsChange,
-                                    onCheckedChange = { cart.setNeedsChange(it) },
+                                    onCheckedChange = { cart.toggleNeedsChange(it) },
                                     colors = CheckboxDefaults.colors(checkedColor = ItaSuperPrimary)
                                 )
                                 Text(
