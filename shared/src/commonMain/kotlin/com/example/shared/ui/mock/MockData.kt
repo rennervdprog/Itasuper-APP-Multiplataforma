@@ -77,7 +77,8 @@ fun mockOrders(): List<com.example.shared.model.Order> = listOf(
             com.example.shared.model.CartItem(
                 product = com.example.shared.model.Product(
                     id = "p1", storeId = "s1", name = "Pastel de Carne",
-                    price = 12.90, imageUrl = null
+                    description = "Pastel crocante de carne", category = "Pastéis",
+                    price = 12.90
                 ),
                 quantity = 2
             )
@@ -101,7 +102,8 @@ fun mockOrders(): List<com.example.shared.model.Order> = listOf(
             com.example.shared.model.CartItem(
                 product = com.example.shared.model.Product(
                     id = "p2", storeId = "s2", name = "Bolo de Chocolate",
-                    price = 35.00, imageUrl = null
+                    description = "Bolo fofinho de chocolate", category = "Bolos",
+                    price = 35.00
                 ),
                 quantity = 1
             )
@@ -125,7 +127,8 @@ fun mockOrders(): List<com.example.shared.model.Order> = listOf(
             com.example.shared.model.CartItem(
                 product = com.example.shared.model.Product(
                     id = "p3", storeId = "s1", name = "Pastel de Queijo",
-                    price = 11.90, imageUrl = null
+                    description = "Pastel crocante de queijo", category = "Pastéis",
+                    price = 11.90
                 ),
                 quantity = 3
             )
