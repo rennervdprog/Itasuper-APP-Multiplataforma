@@ -1,7 +1,8 @@
 package com.example.shared.model
 
-import kotlinx.datetime.Instant
+import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
+import kotlin.time.Instant
 
 /**
  * Regra visual compartilhada. O Supabase continua sendo a autoridade final:
@@ -13,7 +14,7 @@ object RefundEligibility {
         paymentMethod: String,
         status: String,
         refundRequestExpiresAt: String,
-        nowEpochMillis: Long = Instant.now().toEpochMilliseconds()
+        nowEpochMillis: Long = Clock.System.now().toEpochMilliseconds()
     ): Boolean {
         if (paymentMethod != "pix_direto" || status.lowercase() !in setOf("entregue", "finalizado")) {
             return false
