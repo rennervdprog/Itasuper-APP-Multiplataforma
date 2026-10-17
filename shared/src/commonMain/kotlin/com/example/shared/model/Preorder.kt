@@ -6,7 +6,7 @@ package com.example.shared.model
  * para não depender do fuso configurado no aparelho.
  * Implementação em Kotlin puro (multiplataforma, sem dependências).
  */
-fun Store.preorderReleaseAtMillis(nowMillis: Long = currentTimeMillis()): Long? {
+fun Store.preorderReleaseAtMillis(nowMillis: Long = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()): Long? {
     if (isOpen || forceClosed || !preorderEnabled || preorderMinutesBefore <= 0) return null
 
     // Converte para horário de SP (UTC-3)
@@ -29,5 +29,3 @@ fun Store.preorderReleaseAtMillis(nowMillis: Long = currentTimeMillis()): Long? 
     return openingSpMillis + 3 * 3600_000L
 }
 
-/** Relógio multiplataforma (expect/actual por plataforma). */
-expect fun currentTimeMillis(): Long
