@@ -12,6 +12,9 @@ import androidx.compose.ui.Modifier
 import com.example.shared.theme.ItaSuperTheme
 import com.example.shared.ui.home.HomeScreen
 import com.example.shared.ui.mock.findMockStore
+import com.example.shared.ui.notifications.NotificationsScreen
+import com.example.shared.ui.orders.OrdersScreen
+import com.example.shared.ui.profile.ProfileScreen
 import com.example.shared.ui.navigation.AppScreen
 import com.example.shared.ui.search.SearchScreen
 import com.example.shared.ui.store.StoreInfoScreen
@@ -53,6 +56,11 @@ fun App() {
                         AppScreen.SEARCH -> SearchScreen(
                             onStoreClick = { navigator.openStore(it) }
                         )
+                        AppScreen.ORDERS -> OrdersScreen(
+                            onExploreClick = { navigator.navigateTo(AppScreen.HOME) }
+                        )
+                        AppScreen.NOTIFICATIONS -> NotificationsScreen()
+                        AppScreen.PROFILE -> ProfileScreen()
                         else -> PlaceholderScreen(navigator.currentScreen.title)
                     }
                 }
