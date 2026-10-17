@@ -29,3 +29,4 @@ ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-conte
 ktor-serialization-kotlinx-json = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor" }
 kotlinx-datetime = { group = "org.jetbrains.kotlinx", name = "kotlinx-datetime", version.ref = "kotlinx-datetime" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+compose-material-icons-extended = { group = "org.jetbrains.compose.material", name = "material-icons-extended", version.ref = "compose-multiplatform" }
