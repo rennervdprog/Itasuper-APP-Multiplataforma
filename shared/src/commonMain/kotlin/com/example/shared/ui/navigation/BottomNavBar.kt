@@ -12,7 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.ShoppingBag
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -41,7 +41,7 @@ private data class NavItem(
 private val NAV_ITEMS = listOf(
     NavItem(AppScreen.HOME, Icons.Filled.Home),
     NavItem(AppScreen.SEARCH, Icons.Filled.Search),
-    NavItem(AppScreen.ORDERS, Icons.Filled.ShoppingBag),
+    NavItem(AppScreen.ORDERS, Icons.Filled.ShoppingCart),
     NavItem(AppScreen.NOTIFICATIONS, Icons.Filled.Notifications),
     NavItem(AppScreen.PROFILE, Icons.Filled.Person)
 )
