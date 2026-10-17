@@ -246,7 +246,7 @@ private fun StoreCard(store: Store, onClick: () -> Unit) {
                         modifier = Modifier.size(14.dp)
                     )
                     Text(
-                        text = "%.1f".format(store.rating),
+                        text = formatRating(store.rating),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -282,4 +282,11 @@ private fun StoreCard(store: Store, onClick: () -> Unit) {
             }
         }
     }
+}
+
+/** Formata nota com 1 casa decimal (String.format não existe no commonMain). */
+private fun formatRating(rating: Double): String {
+    val rounded = kotlin.math.round(rating * 10) / 10.0
+    val int = rounded.toInt()
+    return if (rounded == int.toDouble()) "$int.0" else rounded.toString()
 }
