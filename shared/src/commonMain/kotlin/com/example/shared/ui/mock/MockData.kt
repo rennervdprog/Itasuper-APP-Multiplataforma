@@ -65,3 +65,123 @@ val mockProducts: List<DiscoverProduct> = listOf(
 val mockCategories = listOf("Lanches", "Pizza", "Marmitas", "Doces", "Açaí", "Bebidas")
 
 fun findMockStore(id: String): Store = mockStores.firstOrNull { it.id == id } ?: mockStores.first()
+
+// ─── Mocks Fase 3c: pedidos, notificações, perfil ──────────────────────────
+
+fun mockOrders(): List<com.example.shared.model.Order> = listOf(
+    com.example.shared.model.Order(
+        id = "a1b2c3d4-e5f6-7890",
+        storeId = "s1",
+        storeName = "Pastelão Carioca",
+        items = listOf(
+            com.example.shared.model.CartItem(
+                product = com.example.shared.model.Product(
+                    id = "p1", storeId = "s1", name = "Pastel de Carne",
+                    price = 12.90, imageUrl = null
+                ),
+                quantity = 2
+            )
+        ),
+        subtotal = 25.80,
+        deliveryFee = 4.90,
+        total = 30.70,
+        paymentMethod = "pix",
+        deliveryAddress = "Rua das Palmeiras, 123 - Centro",
+        status = "preparando",
+        createdAt = "2026-10-17T12:30:00",
+        neighborhood = "Centro",
+        deliveryCity = "Araruama",
+        deliveryState = "RJ"
+    ),
+    com.example.shared.model.Order(
+        id = "b2c3d4e5-f6a7-8901",
+        storeId = "s2",
+        storeName = "Doceria da Cleide",
+        items = listOf(
+            com.example.shared.model.CartItem(
+                product = com.example.shared.model.Product(
+                    id = "p2", storeId = "s2", name = "Bolo de Chocolate",
+                    price = 35.00, imageUrl = null
+                ),
+                quantity = 1
+            )
+        ),
+        subtotal = 35.00,
+        deliveryFee = 0.0,
+        total = 35.00,
+        paymentMethod = "dinheiro",
+        deliveryAddress = "Av. Brasil, 456 - Centro",
+        status = "entregue",
+        createdAt = "2026-10-15T19:45:00",
+        neighborhood = "Centro",
+        deliveryCity = "Araruama",
+        deliveryState = "RJ"
+    ),
+    com.example.shared.model.Order(
+        id = "c3d4e5f6-a7b8-9012",
+        storeId = "s1",
+        storeName = "Pastelão Carioca",
+        items = listOf(
+            com.example.shared.model.CartItem(
+                product = com.example.shared.model.Product(
+                    id = "p3", storeId = "s1", name = "Pastel de Queijo",
+                    price = 11.90, imageUrl = null
+                ),
+                quantity = 3
+            )
+        ),
+        subtotal = 35.70,
+        deliveryFee = 4.90,
+        total = 40.60,
+        paymentMethod = "cartao",
+        deliveryAddress = "Rua das Palmeiras, 123 - Centro",
+        status = "cancelado",
+        createdAt = "2026-10-10T20:15:00",
+        neighborhood = "Centro",
+        deliveryCity = "Araruama",
+        deliveryState = "RJ"
+    )
+)
+
+fun mockNotifications(): List<com.example.shared.model.ClientNotification> = listOf(
+    com.example.shared.model.ClientNotification(
+        id = "n1",
+        orderId = "a1b2c3d4-e5f6-7890",
+        type = "preparando",
+        title = "Pedido em preparo",
+        body = "Pastelão Carioca começou a preparar seu pedido!",
+        createdAt = "2026-10-17T12:35:00"
+    ),
+    com.example.shared.model.ClientNotification(
+        id = "n2",
+        orderId = "b2c3d4e5-f6a7-8901",
+        type = "entregue",
+        title = "Pedido entregue",
+        body = "Seu pedido da Doceria da Cleide foi entregue. Bom apetite!",
+        readAt = "2026-10-15T20:00:00",
+        createdAt = "2026-10-15T19:50:00"
+    ),
+    com.example.shared.model.ClientNotification(
+        id = "n3",
+        type = "promocao",
+        title = "Cupom de boas-vindas",
+        body = "Use BEMVINDO10 e ganhe 10% off no seu próximo pedido!",
+        readAt = "2026-10-14T10:00:00",
+        createdAt = "2026-10-14T09:00:00"
+    )
+)
+
+fun mockUserSession(): com.example.shared.model.UserSession =
+    com.example.shared.model.UserSession(
+        isLoggedIn = true,
+        userId = "u1",
+        name = "Renner",
+        email = "cliente@exemplo.com",
+        whatsapp = "(22) 99999-9999",
+        addressStreet = "Rua das Palmeiras",
+        addressNumber = "123",
+        addressNeighborhood = "Centro",
+        addressCity = "Araruama",
+        addressState = "RJ",
+        addressCep = "28970-000"
+    )
