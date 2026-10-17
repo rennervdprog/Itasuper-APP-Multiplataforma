@@ -35,6 +35,8 @@ kotlin {
         }
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)
+            // Fase 5 item 1: push via Firebase Cloud Messaging (mesmo backend do app nativo).
+            implementation(libs.firebase.messaging)
         }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
