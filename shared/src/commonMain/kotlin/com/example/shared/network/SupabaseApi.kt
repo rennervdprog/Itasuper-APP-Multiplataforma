@@ -126,7 +126,21 @@ object SupabaseApi {
             .getOrElse { JsonArray(emptyList()) }
 
     private fun JsonObjectBuilder.putBlankAsNull(key: String, value: String) {
-        put(key, value.ifBlank { null })
+        putStr(key, value.ifBlank { null })
+    }
+
+    // JsonObjectBuilder.put só aceita JsonElement nesta versão do
+    // kotlinx.serialization — estes helpers envolvem os primitivos.
+    private fun JsonObjectBuilder.putStr(key: String, value: String?) {
+        put(key, if (value == null) JsonNull else JsonPrimitive(value))
+    }
+
+    private fun JsonObjectBuilder.putNum(key: String, value: Number?) {
+        put(key, if (value == null) JsonNull else JsonPrimitive(value))
+    }
+
+    private fun JsonObjectBuilder.putBool(key: String, value: Boolean) {
+        put(key, JsonPrimitive(value))
     }
 
     /** "R$ 4,90" — sem String.format (indisponível no commonMain). */
@@ -308,7 +322,7 @@ object SupabaseApi {
     /** Taxa-base ao cliente via RPC pública (mesma usada pela cotação). null = indisponível. */
     private suspend fun fetchOfficialCustomerDeliveryFee(storeId: String): Double? {
         if (storeId.isBlank()) return null
-        val body = buildJsonObject { put("_store_id", storeId) }.toString()
+        val body = buildJsonObject { putStr("_store_id", storeId) }.toString()
         val (ok, text) = restPostRaw("$SUPABASE_URL/rest/v1/rpc/compute_store_delivery_fee", body)
         if (!ok || text.isBlank()) return null
         return try {
@@ -845,8 +859,8 @@ object SupabaseApi {
 
     suspend fun signIn(email: String, password: String): SupabaseAuthResponse {
         val body = buildJsonObject {
-            put("email", email.trim())
-            put("password", password)
+            putStr("email", email.trim())
+            putStr("password", password)
         }.toString()
         val (ok, text) = authPostRaw("token?grant_type=password", body)
         return parseAuthResponse(ok, text, email, "E-mail ou senha incorretos")
@@ -854,8 +868,8 @@ object SupabaseApi {
 
     suspend fun signUp(email: String, password: String): SupabaseAuthResponse {
         val body = buildJsonObject {
-            put("email", email.trim())
-            put("password", password)
+            putStr("email", email.trim())
+            putStr("password", password)
         }.toString()
         val (ok, text) = authPostRaw("signup", body)
         return parseAuthResponse(ok, text, email, "Erro ao criar conta")
@@ -875,47 +889,47 @@ object SupabaseApi {
         return try {
             val bearer = if (accessToken.isNotBlank()) accessToken else SUPABASE_ANON_KEY
             val orderJson = buildJsonObject {
-                put("client_id", clientId)
-                put("store_id", order.storeId)
-                put("subtotal", order.subtotal)
-                put("delivery_fee", order.deliveryFee)
-                put("wallet_discount", order.walletDiscount)
-                put("loyalty_points_used", order.loyaltyPointsUsed)
-                put("loyalty_discount", order.loyaltyDiscount)
-                put("total_price", order.total)
-                put("payment_method", order.paymentMethod)
-                put("neighborhood", order.neighborhood)
-                put("address_details", order.deliveryAddress)
+                putStr("client_id", clientId)
+                putStr("store_id", order.storeId)
+                putNum("subtotal", order.subtotal)
+                putNum("delivery_fee", order.deliveryFee)
+                putNum("wallet_discount", order.walletDiscount)
+                putNum("loyalty_points_used", order.loyaltyPointsUsed)
+                putNum("loyalty_discount", order.loyaltyDiscount)
+                putNum("total_price", order.total)
+                putStr("payment_method", order.paymentMethod)
+                putStr("neighborhood", order.neighborhood)
+                putStr("address_details", order.deliveryAddress)
                 putBlankAsNull("delivery_cep", order.deliveryCep)
                 putBlankAsNull("delivery_city", order.deliveryCity)
                 putBlankAsNull("delivery_state", order.deliveryState)
-                put("client_lat", order.clientLatitude)
-                put("client_lng", order.clientLongitude)
-                put("delivery_fee_absorbed_by_store", order.deliveryFeeAbsorbedByStore)
+                putNum("client_lat", order.clientLatitude)
+                putNum("client_lng", order.clientLongitude)
+                putNum("delivery_fee_absorbed_by_store", order.deliveryFeeAbsorbedByStore)
                 order.deliveryQuoteSnapshot?.let { snapshot ->
                     put("metadata", buildJsonObject {
                         put("delivery_quote", buildJsonObject {
-                            put("policy_version", snapshot.policyVersion)
-                            put("distance_km", snapshot.distanceKm)
-                            put("distance_source", snapshot.distanceSource)
-                            put("max_delivery_km", snapshot.maxDeliveryKm)
-                            put("destination_precision", snapshot.destinationPrecision)
-                            put("store_delivery_base", snapshot.storeDeliveryBase)
-                            put("platform_fee_customer", snapshot.platformFeeCustomer)
-                            put("platform_fee_store_absorbed", snapshot.platformFeeStoreAbsorbed)
-                            put("delivery_fee", snapshot.deliveryFee)
-                            put("vip_override_applied", snapshot.vipOverrideApplied)
-                            put("split_mode", snapshot.splitMode)
-                            put("plan_type", snapshot.planType)
-                            put("free_delivery_applied", snapshot.freeDeliveryApplied)
+                            putNum("policy_version", snapshot.policyVersion)
+                            putNum("distance_km", snapshot.distanceKm)
+                            putStr("distance_source", snapshot.distanceSource)
+                            putNum("max_delivery_km", snapshot.maxDeliveryKm)
+                            putStr("destination_precision", snapshot.destinationPrecision)
+                            putNum("store_delivery_base", snapshot.storeDeliveryBase)
+                            putNum("platform_fee_customer", snapshot.platformFeeCustomer)
+                            putNum("platform_fee_store_absorbed", snapshot.platformFeeStoreAbsorbed)
+                            putNum("delivery_fee", snapshot.deliveryFee)
+                            putNum("vip_override_applied", snapshot.vipOverrideApplied)
+                            putStr("split_mode", snapshot.splitMode)
+                            putStr("plan_type", snapshot.planType)
+                            putBool("free_delivery_applied", snapshot.freeDeliveryApplied)
                         })
                     })
                 }
-                put("needs_change", needsChange)
-                put("change_for", changeFor)
+                putBool("needs_change", needsChange)
+                putNum("change_for", changeFor)
                 putBlankAsNull("scheduled_for", order.scheduledFor)
                 putBlankAsNull("release_at", order.releaseAt)
-                put("status", order.status)
+                putStr("status", order.status)
             }.toString()
 
             val (orderOk, orderText) = restPostRaw(
@@ -948,27 +962,27 @@ object SupabaseApi {
                         cartItem.selectedAddons.forEach { addon ->
                             add(
                                 buildJsonObject {
-                                    put("id", addon.itemId)
-                                    put("name", addon.itemName)
-                                    put("price", addon.itemPrice)
-                                    put("group_id", addon.groupId)
-                                    put("groupName", addon.groupName)
-                                    put("priceReplacesBase", addon.priceReplacesBase)
+                                    putStr("id", addon.itemId)
+                                    putStr("name", addon.itemName)
+                                    putNum("price", addon.itemPrice)
+                                    putStr("group_id", addon.groupId)
+                                    putStr("groupName", addon.groupName)
+                                    putBool("priceReplacesBase", addon.priceReplacesBase)
                                 }
                             )
                         }
                     }
                     add(
                         buildJsonObject {
-                            put("order_id", orderId)
-                            put("product_id", cartItem.product.id)
-                            put("quantity", cartItem.quantity)
-                            put("unit_price", cartItem.unitPrice)
+                            putStr("order_id", orderId)
+                            putStr("product_id", cartItem.product.id)
+                            putNum("quantity", cartItem.quantity)
+                            putNum("unit_price", cartItem.unitPrice)
                             // O app Android grava a representação JSON dos adicionais
                             // como string neste campo JSONB.
-                            if (addonsJson.isNotEmpty()) put("addons", addonsJson.toString())
+                            if (addonsJson.isNotEmpty()) putStr("addons", addonsJson.toString())
                             else put("addons", JsonNull)
-                            put("observations", cartItem.notes.ifBlank { null })
+                            putStr("observations", cartItem.notes.ifBlank { null })
                         }
                     )
                 }
