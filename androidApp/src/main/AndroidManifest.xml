@@ -3,6 +3,9 @@
 
     <!-- Fase 5: push (FCM) e carregamento de imagens (coil3) precisam de internet. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Fase 5 item 2: localização. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <application
         android:allowBackup="true"
