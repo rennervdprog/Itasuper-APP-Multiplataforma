@@ -34,6 +34,7 @@ kotlin {
             implementation(libs.compose.material.icons.extended)
             // Fase 5 item 3: armazenamento chave-valor multiplataforma.
             implementation(libs.multiplatform.settings)
+            implementation(libs.multiplatform.settings.no.arg)
         }
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)
