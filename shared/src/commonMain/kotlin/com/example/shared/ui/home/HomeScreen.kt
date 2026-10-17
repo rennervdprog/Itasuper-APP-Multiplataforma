@@ -39,11 +39,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.shared.model.Banner
+import coil3.compose.AsyncImage
 import com.example.shared.model.Store
 import com.example.shared.network.SupabaseApi
 import com.example.shared.theme.ItaSuperBackground
@@ -275,20 +277,32 @@ private fun StoreCard(store: Store, onClick: () -> Unit) {
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Logo placeholder (imagem real vem com coil3 numa fase futura)
-            Box(
-                modifier = Modifier
-                    .size(64.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(ItaSuperPrimary.copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = store.name.take(1),
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = ItaSuperPrimary
+            // Fase 5 item 4: logo real via coil3; mantém o placeholder de inicial
+            // quando a loja não tem logoUrl.
+            if (store.logoUrl.isNotBlank()) {
+                AsyncImage(
+                    model = store.logoUrl,
+                    contentDescription = "Logo ${store.name}",
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(RoundedCornerShape(12.dp)),
+                    contentScale = ContentScale.Crop
                 )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(ItaSuperPrimary.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = store.name.take(1),
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ItaSuperPrimary
+                    )
+                }
             }
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
