@@ -188,3 +188,52 @@ fun mockUserSession(): com.example.shared.model.UserSession =
         addressState = "RJ",
         addressCep = "28970-000"
     )
+
+// ─── Mocks Fase 3e: carrinho e endereços salvos ─────────────────────────────
+// TODO(fase-rede): carrinho real do CartRepository + saved_addresses do usuário.
+
+fun mockCartItems(): List<com.example.shared.model.CartItem> = listOf(
+    com.example.shared.model.CartItem(
+        product = com.example.shared.model.Product(
+            id = "p1", storeId = "s1", name = "Pastel de Carne",
+            description = "Pastel crocante de carne moída", category = "Pastéis",
+            price = 12.90
+        ),
+        quantity = 2
+    ),
+    com.example.shared.model.CartItem(
+        product = com.example.shared.model.Product(
+            id = "p2", storeId = "s1", name = "Pastel de Queijo",
+            description = "Pastel de queijo mussarela", category = "Pastéis",
+            price = 11.90
+        ),
+        quantity = 1,
+        notes = "Bem passado"
+    )
+)
+
+fun mockSavedAddresses(): List<com.example.shared.model.SavedAddress> = listOf(
+    com.example.shared.model.SavedAddress(
+        id = "a1",
+        label = "Casa",
+        street = "Rua das Palmeiras",
+        number = "123",
+        complement = "Apto 201",
+        neighborhood = "Centro",
+        city = "Araruama",
+        state = "RJ",
+        cep = "28970-000",
+        pinConfirmed = true,
+        isDefault = true
+    ),
+    com.example.shared.model.SavedAddress(
+        id = "a2",
+        label = "Trabalho",
+        street = "Av. Brasil",
+        number = "1500",
+        neighborhood = "Praia do Hospício",
+        city = "Araruama",
+        state = "RJ",
+        cep = "28970-020"
+    )
+)

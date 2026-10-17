@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -72,7 +73,9 @@ private val MOCK_STORES = listOf(
 @Composable
 fun HomeScreen(
     onSearchClick: () -> Unit = {},
-    onStoreClick: (String) -> Unit = {}
+    onStoreClick: (String) -> Unit = {},
+    onCartClick: () -> Unit = {},
+    cartItemCount: Int = 0
 ) {
     LazyColumn(
         modifier = Modifier
@@ -80,7 +83,7 @@ fun HomeScreen(
             .background(ItaSuperBackground),
         contentPadding = PaddingValues(bottom = 16.dp)
     ) {
-        item { HomeHeader() }
+        item { HomeHeader(onCartClick = onCartClick, cartItemCount = cartItemCount) }
         item { HomeSearchBar(onClick = onSearchClick) }
         item { HomeCategories() }
         item { HomeBanners(MOCK_BANNERS) }
@@ -99,7 +102,10 @@ fun HomeScreen(
 }
 
 @Composable
-private fun HomeHeader() {
+private fun HomeHeader(
+    onCartClick: () -> Unit = {},
+    cartItemCount: Int = 0
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -120,12 +126,46 @@ private fun HomeHeader() {
                 Text(text = "Araruama, RJ", fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
         }
-        Icon(
-            imageVector = Icons.Filled.Notifications,
-            contentDescription = "Avisos",
-            tint = ItaSuperTextSecondary,
-            modifier = Modifier.size(26.dp)
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Filled.Notifications,
+                contentDescription = "Avisos",
+                tint = ItaSuperTextSecondary,
+                modifier = Modifier.size(26.dp)
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            // Fase 3e: acesso ao carrinho a partir da Home.
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clickable(onClick = onCartClick),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.ShoppingCart,
+                    contentDescription = "Carrinho",
+                    tint = ItaSuperPrimary,
+                    modifier = Modifier.size(26.dp)
+                )
+                if (cartItemCount > 0) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .clip(CircleShape)
+                            .background(ItaSuperPrimary)
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (cartItemCount > 99) "99+" else "$cartItemCount",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

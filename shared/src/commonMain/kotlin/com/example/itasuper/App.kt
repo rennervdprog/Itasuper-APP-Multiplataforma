@@ -15,6 +15,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.example.shared.theme.ItaSuperTheme
 import com.example.shared.ui.auth.AuthScreen
+import com.example.shared.ui.cart.CartScreen
+import com.example.shared.ui.cart.CheckoutScreen
+import com.example.shared.ui.cart.OrderSuccessScreen
+import com.example.shared.ui.cart.rememberCartState
 import com.example.shared.ui.home.HomeScreen
 import com.example.shared.ui.mock.findMockStore
 import com.example.shared.ui.notifications.NotificationsScreen
@@ -31,10 +35,14 @@ import com.example.shared.ui.navigation.rememberAppNavigator
  * Fase 3a: navegação por estado + HomeScreen (dados mockados).
  * Fase 3d: gate de autenticação — sem sessão, mostra a AuthScreen em tela
  * cheia; o login mockado (TODO fase-rede) libera o restante do app.
+ * Fase 3e: carrinho + checkout + confirmação (estado em CartHolder, mocks).
  */
 @Composable
 fun App() {
     val navigator = rememberAppNavigator()
+    // Estado do carrinho vive no topo: Home (badge), Cart, Checkout e
+    // confirmação compartilham a mesma instância.
+    val cartState = rememberCartState()
     // TODO(fase-rede): trocar pelo estado real da sessão (UserSessionRepository).
     var isLoggedIn by remember { mutableStateOf(false) }
     ItaSuperTheme {
@@ -46,46 +54,77 @@ fun App() {
                 }
             )
         } else {
-            val storeDetailId = navigator.storeDetailId
-            Scaffold(
-                bottomBar = {
-                    // Detalhe da loja ocupa a tela toda (tem botão voltar próprio)
-                    if (storeDetailId == null) {
-                        ItaSuperBottomNavBar(
-                            currentScreen = navigator.currentScreen,
-                            onNavigate = { navigator.navigateTo(it) }
-                        )
+            val placedOrder = cartState.placedOrder
+            if (placedOrder != null) {
+                // Tela de confirmação ocupa a tela toda (substitui a navegação).
+                OrderSuccessScreen(
+                    order = placedOrder,
+                    onTrackOrders = {
+                        cartState.dismissSuccess()
+                        navigator.navigateTo(AppScreen.ORDERS)
+                    },
+                    onBackHome = {
+                        cartState.dismissSuccess()
+                        navigator.navigateTo(AppScreen.HOME)
                     }
-                }
-            ) { padding ->
-                Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-                    if (storeDetailId != null) {
-                        StoreInfoScreen(
-                            store = findMockStore(storeDetailId),
-                            onBackClick = { navigator.closeStore() }
-                        )
-                    } else {
-                        when (navigator.currentScreen) {
-                            AppScreen.HOME -> HomeScreen(
-                                onSearchClick = { navigator.navigateTo(AppScreen.SEARCH) },
-                                onStoreClick = { navigator.openStore(it) }
+                )
+            } else {
+                val storeDetailId = navigator.storeDetailId
+                val fullScreenCartFlow = navigator.currentScreen == AppScreen.CART ||
+                        navigator.currentScreen == AppScreen.CHECKOUT
+                Scaffold(
+                    bottomBar = {
+                        // Detalhe da loja e fluxo do carrinho ocupam a tela toda
+                        // (têm botão voltar próprio).
+                        if (storeDetailId == null && !fullScreenCartFlow) {
+                            ItaSuperBottomNavBar(
+                                currentScreen = navigator.currentScreen,
+                                onNavigate = { navigator.navigateTo(it) }
                             )
-                            AppScreen.SEARCH -> SearchScreen(
-                                onStoreClick = { navigator.openStore(it) }
+                        }
+                    }
+                ) { padding ->
+                    Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+                        if (storeDetailId != null) {
+                            StoreInfoScreen(
+                                store = findMockStore(storeDetailId),
+                                onBackClick = { navigator.closeStore() }
                             )
-                            AppScreen.ORDERS -> OrdersScreen(
-                                onExploreClick = { navigator.navigateTo(AppScreen.HOME) }
-                            )
-                            AppScreen.NOTIFICATIONS -> NotificationsScreen()
-                            AppScreen.PROFILE -> ProfileScreen(
-                                onLogout = { isLoggedIn = false }
-                            )
-                            AppScreen.AUTH -> AuthScreen(
-                                onAuthSuccess = {
-                                    isLoggedIn = true
-                                    navigator.navigateTo(AppScreen.HOME)
-                                }
-                            )
+                        } else {
+                            when (navigator.currentScreen) {
+                                AppScreen.HOME -> HomeScreen(
+                                    onSearchClick = { navigator.navigateTo(AppScreen.SEARCH) },
+                                    onStoreClick = { navigator.openStore(it) },
+                                    onCartClick = { navigator.navigateTo(AppScreen.CART) },
+                                    cartItemCount = cartState.totalItemCount
+                                )
+                                AppScreen.SEARCH -> SearchScreen(
+                                    onStoreClick = { navigator.openStore(it) }
+                                )
+                                AppScreen.ORDERS -> OrdersScreen(
+                                    onExploreClick = { navigator.navigateTo(AppScreen.HOME) }
+                                )
+                                AppScreen.NOTIFICATIONS -> NotificationsScreen()
+                                AppScreen.PROFILE -> ProfileScreen(
+                                    onLogout = { isLoggedIn = false }
+                                )
+                                AppScreen.AUTH -> AuthScreen(
+                                    onAuthSuccess = {
+                                        isLoggedIn = true
+                                        navigator.navigateTo(AppScreen.HOME)
+                                    }
+                                )
+                                AppScreen.CART -> CartScreen(
+                                    cart = cartState,
+                                    onNavigateBack = { navigator.navigateTo(AppScreen.HOME) },
+                                    onNavigateToCheckout = { navigator.navigateTo(AppScreen.CHECKOUT) },
+                                    onNavigateToHome = { navigator.navigateTo(AppScreen.HOME) }
+                                )
+                                AppScreen.CHECKOUT -> CheckoutScreen(
+                                    cart = cartState,
+                                    onNavigateBack = { navigator.navigateTo(AppScreen.CART) }
+                                )
+                            }
                         }
                     }
                 }

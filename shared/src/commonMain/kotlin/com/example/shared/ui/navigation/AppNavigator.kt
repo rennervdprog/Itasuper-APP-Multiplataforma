@@ -19,7 +19,11 @@ enum class AppScreen(val route: String, val title: String) {
     PROFILE("perfil", "Perfil"),
     // Fase 3d: tela de login/cadastro. Não entra na bottom bar (NAV_ITEMS),
     // é exibida em tela cheia pelo App quando não há sessão ativa.
-    AUTH("auth", "Entrar")
+    AUTH("auth", "Entrar"),
+    // Fase 3e: carrinho e checkout. Não entram na bottom bar (NAV_ITEMS);
+    // ocupam a tela toda com botão voltar próprio.
+    CART("carrinho", "Carrinho"),
+    CHECKOUT("checkout", "Checkout")
 }
 
 /**
