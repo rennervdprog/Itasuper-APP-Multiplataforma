@@ -31,6 +31,7 @@ kotlin {
             implementation(libs.ktor.serialization.kotlinx.json)
             implementation(libs.kotlinx.datetime)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.compose.material.icons.extended)
         }
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)
