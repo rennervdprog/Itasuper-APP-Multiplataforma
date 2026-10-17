@@ -36,8 +36,8 @@ kotlin {
             implementation(libs.multiplatform.settings)
             implementation(libs.multiplatform.settings.no.arg)
             // Fase 5 item 4: carregamento de imagens (logo das lojas).
-            implementation(libs.coil3.compose)
-            implementation(libs.coil3.network.ktor3)
+            implementation(libs.coil.compose)
+            implementation(libs.coil.network.ktor3)
         }
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)
