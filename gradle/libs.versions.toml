@@ -37,5 +37,6 @@ compose-material-icons-extended = { group = "org.jetbrains.compose.material", na
 firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging", version.ref = "firebase-messaging" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "play-services-location" }
 multiplatform-settings = { group = "com.russhwolf", name = "multiplatform-settings", version.ref = "multiplatform-settings" }
+multiplatform-settings-no-arg = { group = "com.russhwolf", name = "multiplatform-settings-no-arg", version.ref = "multiplatform-settings" }
 coil3-compose = { group = "io.coil-ktor.coil3", name = "coil3-compose", version.ref = "coil3" }
 coil3-network-ktor3 = { group = "io.coil-ktor.coil3", name = "coil3-network-ktor3", version.ref = "coil3" }
