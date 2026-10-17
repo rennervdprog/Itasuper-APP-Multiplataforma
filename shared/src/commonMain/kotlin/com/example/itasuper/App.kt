@@ -11,7 +11,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.example.shared.theme.ItaSuperTheme
 import com.example.shared.ui.home.HomeScreen
+import com.example.shared.ui.mock.findMockStore
 import com.example.shared.ui.navigation.AppScreen
+import com.example.shared.ui.search.SearchScreen
+import com.example.shared.ui.store.StoreInfoScreen
 import com.example.shared.ui.navigation.ItaSuperBottomNavBar
 import com.example.shared.ui.navigation.rememberAppNavigator
 
@@ -23,21 +26,35 @@ import com.example.shared.ui.navigation.rememberAppNavigator
 fun App() {
     val navigator = rememberAppNavigator()
     ItaSuperTheme {
+        val storeDetailId = navigator.storeDetailId
         Scaffold(
             bottomBar = {
-                ItaSuperBottomNavBar(
-                    currentScreen = navigator.currentScreen,
-                    onNavigate = { navigator.navigateTo(it) }
-                )
+                // Detalhe da loja ocupa a tela toda (tem botão voltar próprio)
+                if (storeDetailId == null) {
+                    ItaSuperBottomNavBar(
+                        currentScreen = navigator.currentScreen,
+                        onNavigate = { navigator.navigateTo(it) }
+                    )
+                }
             }
         ) { padding ->
             Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-                when (navigator.currentScreen) {
-                    AppScreen.HOME -> HomeScreen(
-                        onSearchClick = { navigator.navigateTo(AppScreen.SEARCH) },
-                        onStoreClick = { /* TODO: detalhe da loja */ }
+                if (storeDetailId != null) {
+                    StoreInfoScreen(
+                        store = findMockStore(storeDetailId),
+                        onBackClick = { navigator.closeStore() }
                     )
-                    else -> PlaceholderScreen(navigator.currentScreen.title)
+                } else {
+                    when (navigator.currentScreen) {
+                        AppScreen.HOME -> HomeScreen(
+                            onSearchClick = { navigator.navigateTo(AppScreen.SEARCH) },
+                            onStoreClick = { navigator.openStore(it) }
+                        )
+                        AppScreen.SEARCH -> SearchScreen(
+                            onStoreClick = { navigator.openStore(it) }
+                        )
+                        else -> PlaceholderScreen(navigator.currentScreen.title)
+                    }
                 }
             }
         }
