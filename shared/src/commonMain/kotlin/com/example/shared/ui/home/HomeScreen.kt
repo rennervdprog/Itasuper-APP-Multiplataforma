@@ -31,6 +31,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,13 +45,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.shared.model.Banner
 import com.example.shared.model.Store
+import com.example.shared.network.SupabaseApi
 import com.example.shared.theme.ItaSuperBackground
 import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ItaSuperTextSecondary
 
 /**
  * Tela inicial — migração fase 3a do HomeScreen do app Android.
- * Versão com dados mockados (a rede real vem na próxima fase).
+ * Fase 4 (rede real): a lista de lojas agora vem do Supabase
+ * ([SupabaseApi.fetchActiveStores]); se a chamada falhar (ou as credenciais
+ * ainda forem placeholders), mantém os mocks como fallback para a UI
+ * continuar demonstrável. Banners seguem mockados (TODO fase-rede).
  * Visual segue o original: cabeçalho com localização, busca,
  * categorias, banners e lista de lojas.
  */
@@ -77,6 +86,14 @@ fun HomeScreen(
     onCartClick: () -> Unit = {},
     cartItemCount: Int = 0
 ) {
+    // Fase 4: lojas reais do Supabase, com fallback para os mocks em caso de falha.
+    var stores by remember { mutableStateOf(MOCK_STORES) }
+    LaunchedEffect(Unit) {
+        val result = SupabaseApi.fetchActiveStores()
+        if (result.isSuccess && result.stores.isNotEmpty()) {
+            stores = result.stores
+        }
+    }
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -95,7 +112,7 @@ fun HomeScreen(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
         }
-        items(MOCK_STORES) { store ->
+        items(stores) { store ->
             StoreCard(store = store, onClick = { onStoreClick(store.id) })
         }
     }
