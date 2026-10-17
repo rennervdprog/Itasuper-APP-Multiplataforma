@@ -53,7 +53,6 @@ import com.example.shared.theme.ItaSuperBackground
 import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ItaSuperTextPrimary
 import com.example.shared.theme.ItaSuperTextSecondary
-import com.example.shared.ui.home.formatRating
 import com.example.shared.ui.mock.mockCategories
 import com.example.shared.ui.mock.mockProducts
 import com.example.shared.ui.mock.mockStores
@@ -72,6 +71,12 @@ enum class QuickFilter(val label: String) {
     OPEN_NOW("Aberto agora"),
     TOP_RATED("Melhor avaliados"),
     FAST("Entrega rápida")
+}
+
+fun formatSearchRating(rating: Double): String {
+    val rounded = kotlin.math.round(rating * 10) / 10.0
+    val int = rounded.toInt()
+    return if (rounded == int.toDouble()) "$int.0" else rounded.toString()
 }
 
 fun formatMoney(value: Double): String {
@@ -439,7 +444,7 @@ private fun StoreResultCard(store: Store, onClick: () -> Unit) {
                 )
                 Spacer(modifier = Modifier.width(3.dp))
                 Text(
-                    text = "${formatRating(store.rating)} \u00b7 ${store.category} \u00b7 ${store.deliveryTime}",
+                    text = "${formatSearchRating(store.rating)} \u00b7 ${store.category} \u00b7 ${store.deliveryTime}",
                     style = TextStyle(fontSize = 12.sp, color = ItaSuperTextSecondary),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
