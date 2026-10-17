@@ -28,8 +28,20 @@ class AppNavigator {
     var currentScreen by mutableStateOf(AppScreen.HOME)
         private set
 
+    /** Id da loja aberta no detalhe ("Sobre a loja"); null = nenhuma aberta. */
+    var storeDetailId by mutableStateOf<String?>(null)
+        private set
+
     fun navigateTo(screen: AppScreen) {
         currentScreen = screen
+    }
+
+    fun openStore(storeId: String) {
+        storeDetailId = storeId
+    }
+
+    fun closeStore() {
+        storeDetailId = null
     }
 }
 
