@@ -252,7 +252,7 @@ fun CartScreen(
                                         if (selected) ItaSuperPrimary else Color(0xFFE2E2E2),
                                         RoundedCornerShape(14.dp)
                                     )
-                                    .clickable { cart.setDeliveryType(type) }
+                                    .clickable { cart.selectDeliveryType(type) }
                                     .padding(vertical = 12.dp),
                                 contentAlignment = Alignment.Center
                             ) {
