@@ -1,0 +1,16 @@
+# Gradle
+.gradle/
+build/
+# Android
+local.properties
+*.apk
+*.aab
+# iOS / Xcode
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+DerivedData/
+*.ipa
+# IDE
+.idea/
+*.iml
+.DS_Store
