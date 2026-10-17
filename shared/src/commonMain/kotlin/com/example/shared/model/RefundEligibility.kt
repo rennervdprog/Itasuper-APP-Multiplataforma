@@ -1,15 +1,13 @@
 package com.example.shared.model
 
-import kotlin.time.Clock
-import kotlin.time.ExperimentalTime
-import kotlin.time.Instant
+import kotlinx.datetime.Clock
+import kotlinx.datetime.Instant
 
 /**
  * Regra visual compartilhada. O Supabase continua sendo a autoridade final:
  * exige PIX Direto confirmado, pedido concluído, ownership e prazo de 24 horas aberto.
  */
 object RefundEligibility {
-    @OptIn(ExperimentalTime::class)
     fun canOpenPixDiretoCase(
         paymentMethod: String,
         status: String,
