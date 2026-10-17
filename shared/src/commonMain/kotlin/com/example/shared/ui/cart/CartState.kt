@@ -111,7 +111,7 @@ class CartHolder {
         couponError = null
     }
 
-    fun setDeliveryType(type: DeliveryType) {
+    fun selectDeliveryType(type: DeliveryType) {
         deliveryType = type
     }
 
@@ -139,7 +139,7 @@ class CartHolder {
         selectedAddressId = id
     }
 
-    fun setPaymentMethod(method: String) {
+    fun selectPaymentMethod(method: String) {
         paymentMethod = method
         if (method != "Dinheiro") {
             needsChange = false
@@ -147,7 +147,7 @@ class CartHolder {
         }
     }
 
-    fun setNeedsChange(value: Boolean) {
+    fun toggleNeedsChange(value: Boolean) {
         needsChange = value
     }
 
