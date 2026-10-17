@@ -37,6 +37,8 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
             // Fase 5 item 1: push via Firebase Cloud Messaging (mesmo backend do app nativo).
             implementation(libs.firebase.messaging)
+            // Fase 5 item 2: localização (FusedLocationProviderClient).
+            implementation(libs.play.services.location)
         }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
