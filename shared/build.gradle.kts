@@ -32,6 +32,8 @@ kotlin {
             implementation(libs.kotlinx.datetime)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.compose.material.icons.extended)
+            // Fase 5 item 3: armazenamento chave-valor multiplataforma.
+            implementation(libs.multiplatform.settings)
         }
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)
