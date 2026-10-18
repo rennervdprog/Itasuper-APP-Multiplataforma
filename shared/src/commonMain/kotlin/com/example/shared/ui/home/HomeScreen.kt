@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Fastfood
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocalBar
+import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.LocalPizza
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MedicalServices
@@ -97,7 +98,6 @@ import com.example.shared.generated.resources.ic_ita_chevron_right
 import com.example.shared.generated.resources.ic_ita_store
 import com.example.shared.generated.resources.ic_lucide_bell
 import com.example.shared.generated.resources.ic_lucide_chevron_down
-import com.example.shared.generated.resources.ic_lucide_map_pin
 import com.example.shared.generated.resources.ic_lucide_search
 import com.example.shared.generated.resources.ic_lucide_shopping_bag
 import com.example.shared.model.Banner
@@ -349,6 +349,9 @@ fun HomeScreen(
     // no KMP o sheet é aberto pelo menu Perfil).
     var showSupportSheet by remember { mutableStateOf(false) }
 
+    // Banner promocional dispensável (padrão iFood): visível enquanto há cupons e não foi fechado.
+    var promoBannerDismissed by remember { mutableStateOf(false) }
+
     val session = remember { mockUserSession() }
     var addressDraft by remember {
         mutableStateOf(
@@ -410,13 +413,20 @@ fun HomeScreen(
             .verticalScroll(rememberScrollState())
     ) {
         HomeHeaderSection(
+            userName = session.name,
             streetName = session.addressStreet,
             streetNumber = session.addressNumber,
-            activeCity = activeCity,
-            onNotificationsClick = { /* TODO(fase-rede): tela de avisos */ },
+            cartItemCount = cartItemCount,
+            onCouponClick = { /* TODO: tela de cupons */ },
             onCartClick = onCartClick,
             onAddressClick = { showAddressChoiceDialog = true }
         )
+
+        // Banner promocional dispensável (só aparece quando há cupons).
+        if (storesWithCoupons.isNotEmpty() && !promoBannerDismissed) {
+            Spacer(modifier = Modifier.height(8.dp))
+            HomePromoBanner(onDismiss = { promoBannerDismissed = true })
+        }
 
         HomeSearchSection(
             activeCity = activeCity,
@@ -600,106 +610,178 @@ fun HomeScreen(
 
 @Composable
 private fun HomeHeaderSection(
+    userName: String,
     streetName: String,
     streetNumber: String,
-    activeCity: String,
-    onNotificationsClick: () -> Unit,
+    cartItemCount: Int,
+    onCouponClick: () -> Unit,
     onCartClick: () -> Unit,
     onAddressClick: () -> Unit
 ) {
-    Column(
+    // Saudação dinâmica por horário (America/Sao_Paulo) — padrão iFood.
+    val greeting = remember {
+        val hour = Clock.System.now().toLocalDateTime(TimeZone.of("America/Sao_Paulo")).hour
+        when (hour) {
+            in 5..11 -> "Bom dia"
+            in 12..17 -> "Boa tarde"
+            else -> "Boa noite"
+        }
+    }
+    val displayAddress = listOf(streetName.trim(), streetNumber.trim())
+        .filter { it.isNotBlank() }
+        .joinToString(", ")
+    val hasAddress = displayAddress.isNotBlank()
+
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 20.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "ENTREGAR EM",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = ManropeFontFamily(),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp,
-                        color = ItaSuperTextSecondary,
-                        letterSpacing = 0.5.sp
-                    )
-                )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = if (userName.isNotBlank()) "$greeting, $userName" else greeting,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontFamily = ManropeFontFamily(),
+                    fontSize = 13.sp,
+                    color = ItaSuperTextSecondary
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
 
-                Spacer(modifier = Modifier.height(2.dp))
-
-                val displayAddress = listOf(streetName.trim(), streetNumber.trim())
-                    .filter { it.isNotBlank() }
-                    .joinToString(", ")
-                val hasAddress = displayAddress.isNotBlank() || activeCity.isNotBlank()
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { onAddressClick() }
-                ) {
-                    Icon(
-                        painter = painterResource(Res.drawable.ic_lucide_map_pin),
-                        contentDescription = null,
-                        tint = ItaSuperPrimary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = displayAddress.ifBlank { "Informe seu endereço" },
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontFamily = ManropeFontFamily(),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                color = if (hasAddress) ItaSuperTextPrimary else ItaSuperPrimary
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (activeCity.isNotBlank() && displayAddress.isNotBlank()) {
-                            Text(
-                                text = activeCity,
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    fontFamily = ManropeFontFamily(),
-                                    fontSize = 12.sp,
-                                    color = ItaSuperTextSecondary
-                                ),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                    Icon(
-                        painter = painterResource(Res.drawable.ic_lucide_chevron_down),
-                        contentDescription = "Alterar endereço",
-                        tint = Color.Unspecified,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
+            Spacer(modifier = Modifier.height(2.dp))
 
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clickable { onAddressClick() }
             ) {
-                HomeTopActionButton(
-                    icon = Res.drawable.ic_lucide_bell,
-                    contentDescription = "Abrir avisos",
-                    onClick = onNotificationsClick,
-                    modifier = Modifier.testTag("header_notifications_button")
+                Text(
+                    text = displayAddress.ifBlank { "Informe seu endereço" },
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontFamily = ManropeFontFamily(),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = if (hasAddress) ItaSuperTextPrimary else ItaSuperPrimary
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
+                Spacer(modifier = Modifier.width(2.dp))
+                Icon(
+                    painter = painterResource(Res.drawable.ic_lucide_chevron_down),
+                    contentDescription = "Alterar endereço",
+                    tint = Color.Unspecified,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Cupons (padrão iFood: ícone de fidelidade à direita; aqui o de oferta ItaSuper).
+            IconButton(
+                onClick = onCouponClick,
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(Color.White)
+                    .border(1.dp, Color(0xFFE8E8E8), CircleShape)
+                    .testTag("header_coupons_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.LocalOffer,
+                    contentDescription = "Meus cupons",
+                    tint = ItaSuperPrimary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            // Sacola com badge de quantidade.
+            Box {
                 HomeTopActionButton(
                     icon = Res.drawable.ic_lucide_shopping_bag,
                     contentDescription = "Abrir sacola",
                     onClick = onCartClick,
                     modifier = Modifier.testTag("header_cart_button")
                 )
+                if (cartItemCount > 0) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(ItaSuperPrimary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (cartItemCount > 99) "99+" else cartItemCount.toString(),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontFamily = ManropeFontFamily(),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = Color.White
+                            )
+                        )
+                    }
+                }
             }
         }
     }
 }
+
+/** Banner promocional dispensável abaixo do header (padrão iFood, cores ItaSuper). */
+@Composable
+private fun HomePromoBanner(
+    onDismiss: () -> Unit,
+    onClick: () -> Unit = {}
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFFFFF1E3))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Filled.LocalOffer,
+            contentDescription = null,
+            tint = ItaSuperPrimary,
+            modifier = Modifier.size(28.dp)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(
+            text = "Você tem cupons disponíveis!",
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontFamily = ManropeFontFamily(),
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                color = ItaSuperTextPrimary
+            ),
+            modifier = Modifier.weight(1f)
+        )
+        IconButton(
+            onClick = onDismiss,
+            modifier = Modifier.size(28.dp)
+        ) {
+            Icon(
+                painter = painterResource(Res.drawable.ic_ita_close),
+                contentDescription = "Fechar",
+                tint = ItaSuperTextSecondary,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+}
+
 
 @Composable
 private fun HomeTopActionButton(
