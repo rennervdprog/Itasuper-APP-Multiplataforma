@@ -133,8 +133,9 @@ import kotlin.math.round
  *   campo editável inline do original — visual idêntico.
  * - Scaffold/bottom bar/snackbar/pull-to-refresh pertencem ao App.kt no KMP;
  *   aqui vai só o conteúdo rolável (fundo 0xFFFAFAFA, como o Scaffold original).
- * - Diálogos de endereço/permissões e o SupportBottomSheet dependem de APIs de
- *   plataforma e ficam fora desta tela.
+ * - Diálogos de permissões dependem de APIs de plataforma e ficam fora desta
+ *   tela. Diálogos de endereço (ITEM 3/6) e o SupportBottomSheet (ITEM 4/6)
+ *   foram migrados e estão conectados aqui.
  * - Seções definidas mas não chamadas no original (banners compactos, bento
  *   hero/destaques, descubra, chips de categoria, último pedido, ticket de
  *   cupom) foram portadas por fidelidade, mas seguem sem chamada — como no
@@ -321,6 +322,11 @@ fun HomeScreen(
     var isLookingUpCep by remember { mutableStateOf(false) }
     var isSavingAddress by remember { mutableStateOf(false) }
 
+    // ITEM 4/6: estado do SupportBottomSheet (no original vive no HomeViewModel;
+    // no app original o gatilho openSupportSheet não tinha chamador na UI —
+    // no KMP o sheet é aberto pelo menu Perfil).
+    var showSupportSheet by remember { mutableStateOf(false) }
+
     val session = remember { mockUserSession() }
     var addressDraft by remember {
         mutableStateOf(
@@ -459,6 +465,12 @@ fun HomeScreen(
         // A primeira dobra termina na lista, como no layout aprovado. A lista é
         // cortada e o catálogo completo continua acessível pela Busca.
         Spacer(modifier = Modifier.height(18.dp))
+    }
+
+    // ITEM 4/6: bottom sheet de suporte (migração 1:1 do original — lá o sheet
+    // é hospedado pela Home via uiState.showSupportSheet).
+    if (showSupportSheet) {
+        SupportBottomSheet(onDismiss = { showSupportSheet = false })
     }
 
     // ITEM 3/6: diálogos de endereço/localização (migração 1:1 do original).
