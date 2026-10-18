@@ -87,8 +87,7 @@ import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ItaSuperSecondary
 import com.example.shared.theme.ItaSuperTextPrimary
 import com.example.shared.theme.ItaSuperWarning
-import com.example.shared.ui.cart.CartState
-import com.example.shared.ui.cart.CartState
+import com.example.shared.ui.cart.CartHolder
 import com.example.shared.ui.cart.formatBRL
 import com.example.shared.ui.mock.findMockStore
 import com.example.shared.ui.mock.mockMenuSections
@@ -116,7 +115,7 @@ private fun todayDowSun0(): Int {
 @Composable
 fun StoreDetailScreen(
     storeId: String,
-    cart: CartState,
+    cart: CartHolder,
     onBackClick: () -> Unit,
     onNavigateToCart: () -> Unit,
     onNavigateToInfo: () -> Unit
@@ -1433,7 +1432,7 @@ private fun SimpleBuilderSheetContent(
     type: String,
     store: Store,
     products: List<Product>,
-    cart: CartState,
+    cart: CartHolder,
     onClose: () -> Unit
 ) {
     val flavors = remember(products, type) {
