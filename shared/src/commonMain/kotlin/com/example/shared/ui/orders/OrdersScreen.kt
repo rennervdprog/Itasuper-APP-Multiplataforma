@@ -94,7 +94,7 @@ import kotlin.math.roundToLong
 // - Ações de rede (cancelar pedido, confirmar entrega, pagar PIX, avaliar,
 //   reembolso, repetir pedido): no-ops locais ou estado em memória apenas.
 //   Comportamento real chega com a fase de rede (Ktor/SupabaseClient).
-// - "Acompanhar entrega": botão no-op; rota ainda não existe no AppNavigator KMP.
+// - "Acompanhar entrega": abre DeliveryTrackingScreen via AppNavigator (trackingOrderId).
 // - Auto-refresh periódico (5s/30s) do original não existe na prévia.
 // =============================================================================
 
@@ -267,7 +267,10 @@ private class PixDirectPaymentUiState(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun OrdersScreen(onExploreClick: () -> Unit = {}) {
+fun OrdersScreen(
+    onExploreClick: () -> Unit = {},
+    onTrackDelivery: (orderId: String) -> Unit = {}
+) {
     val orders = remember { mutableStateListOf<Order>().also { it.addAll(mockOrders()) } }
     val selectedFilter = remember { mutableStateOf(OrdersFilter.ACTIVE) }
     val filteredOrders = orders.filter { it.matchesFilter(selectedFilter.value) }
@@ -541,7 +544,7 @@ fun OrdersScreen(onExploreClick: () -> Unit = {}) {
                                 if (idx >= 0) orders[idx] = order.copy(status = "entregue", deliveryConfirmedByClient = true)
                             },
                             onCancelOrder = { orderPendingCancellation.value = order },
-                            onTrackDelivery = { /* TODO: rota "acompanhar_entrega" ainda não existe no AppNavigator KMP */ }
+                            onTrackDelivery = { onTrackDelivery(order.id) }
                         )
                     }
                 }
