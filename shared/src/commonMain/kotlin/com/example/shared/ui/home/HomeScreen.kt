@@ -3,6 +3,7 @@ package com.example.shared.ui.home
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -79,7 +80,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.example.shared.generated.resources.Res
-import com.example.shared.generated.resources.ic_home_category_pastel
+import com.example.shared.generated.resources.ic_cat_acai_3d
+import com.example.shared.generated.resources.ic_cat_bebidas_3d
+import com.example.shared.generated.resources.ic_cat_churrasco_3d
+import com.example.shared.generated.resources.ic_cat_farmacia_3d
+import com.example.shared.generated.resources.ic_cat_lanches_3d
+import com.example.shared.generated.resources.ic_cat_marmita_3d
+import com.example.shared.generated.resources.ic_cat_mercado_3d
+import com.example.shared.generated.resources.ic_cat_pastel_3d
+import com.example.shared.generated.resources.ic_cat_pizzaria_3d
+import com.example.shared.generated.resources.ic_cat_todos_3d
 import com.example.shared.generated.resources.ic_home_placeholder_smile
 import com.example.shared.generated.resources.ic_home_sort
 import com.example.shared.generated.resources.ic_ita_bag
@@ -87,18 +97,9 @@ import com.example.shared.generated.resources.ic_ita_chevron_right
 import com.example.shared.generated.resources.ic_ita_store
 import com.example.shared.generated.resources.ic_lucide_bell
 import com.example.shared.generated.resources.ic_lucide_chevron_down
-import com.example.shared.generated.resources.ic_lucide_hamburger
-import com.example.shared.generated.resources.ic_lucide_layout_grid
 import com.example.shared.generated.resources.ic_lucide_map_pin
 import com.example.shared.generated.resources.ic_lucide_search
 import com.example.shared.generated.resources.ic_lucide_shopping_bag
-import com.example.shared.generated.resources.ic_preview_acai
-import com.example.shared.generated.resources.ic_preview_basket
-import com.example.shared.generated.resources.ic_preview_burger
-import com.example.shared.generated.resources.ic_preview_drink
-import com.example.shared.generated.resources.ic_preview_marmita
-import com.example.shared.generated.resources.ic_preview_pharmacy
-import com.example.shared.generated.resources.ic_preview_pizza
 import com.example.shared.model.Banner
 import com.example.shared.model.CategoryItem
 import com.example.shared.model.DiscoverProduct
@@ -830,16 +831,17 @@ private fun HomeExplorationCategoryItem(
 ) {
     // Mesma regra do app original: iconName -> drawable (composeResources).
     val iconRes = when (category.iconName.lowercase()) {
-        "layout_grid", "todas", "todos", "all" -> Res.drawable.ic_lucide_layout_grid
-        "fastfood", "lanche", "hamburger", "hamburguer" -> Res.drawable.ic_preview_burger
-        "local_pizza", "pizza" -> Res.drawable.ic_preview_pizza
-        "restaurant", "marmita" -> Res.drawable.ic_preview_marmita
-        "bakery_dining", "pastel" -> Res.drawable.ic_home_category_pastel
-        "icecream", "acai", "açaí" -> Res.drawable.ic_preview_acai
-        "local_bar", "bebidas" -> Res.drawable.ic_preview_drink
-        "shopping_cart", "mercado", "market" -> Res.drawable.ic_preview_basket
-        "pharmacy", "farmacia", "farmácia", "farmacias" -> Res.drawable.ic_preview_pharmacy
-        else -> Res.drawable.ic_lucide_hamburger
+        "layout_grid", "todas", "todos", "all" -> Res.drawable.ic_cat_todos_3d
+        "fastfood", "lanche", "lanches", "hamburger", "hamburguer" -> Res.drawable.ic_cat_lanches_3d
+        "local_pizza", "pizza", "pizzaria" -> Res.drawable.ic_cat_pizzaria_3d
+        "restaurant", "marmita" -> Res.drawable.ic_cat_marmita_3d
+        "bakery_dining", "pastel", "pasteis" -> Res.drawable.ic_cat_pastel_3d
+        "icecream", "acai", "açaí" -> Res.drawable.ic_cat_acai_3d
+        "local_bar", "bebidas", "bebida" -> Res.drawable.ic_cat_bebidas_3d
+        "shopping_cart", "mercado", "mercados", "market" -> Res.drawable.ic_cat_mercado_3d
+        "pharmacy", "farmacia", "farmácia", "farmacias" -> Res.drawable.ic_cat_farmacia_3d
+        "churrasco" -> Res.drawable.ic_cat_churrasco_3d
+        else -> Res.drawable.ic_cat_lanches_3d
     }
     val label = category.name.ifBlank { category.id.replaceFirstChar { it.uppercase() } }
 
@@ -863,11 +865,13 @@ private fun HomeExplorationCategoryItem(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
+                Image(
                     painter = painterResource(iconRes),
                     contentDescription = label,
-                    tint = Color.Unspecified,
-                    modifier = Modifier.size(32.dp)
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(50.dp)
+                        .clip(CircleShape)
                 )
             }
         }
