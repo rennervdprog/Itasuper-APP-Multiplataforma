@@ -26,6 +26,7 @@ import com.example.shared.ui.orders.OrdersScreen
 import com.example.shared.ui.profile.ProfileScreen
 import com.example.shared.ui.navigation.AppScreen
 import com.example.shared.ui.search.SearchScreen
+import com.example.shared.ui.store.StoreDetailScreen
 import com.example.shared.ui.store.StoreInfoScreen
 import com.example.shared.ui.navigation.ItaSuperBottomNavBar
 import com.example.shared.ui.navigation.rememberAppNavigator
@@ -70,13 +71,14 @@ fun App() {
                 )
             } else {
                 val storeDetailId = navigator.storeDetailId
+                val storeInfoId = navigator.storeInfoId
                 val fullScreenCartFlow = navigator.currentScreen == AppScreen.CART ||
                         navigator.currentScreen == AppScreen.CHECKOUT
                 Scaffold(
                     bottomBar = {
-                        // Detalhe da loja e fluxo do carrinho ocupam a tela toda
+                        // Vitrine, "Sobre a loja" e fluxo do carrinho ocupam a tela toda
                         // (têm botão voltar próprio).
-                        if (storeDetailId == null && !fullScreenCartFlow) {
+                        if (storeDetailId == null && storeInfoId == null && !fullScreenCartFlow) {
                             ItaSuperBottomNavBar(
                                 currentScreen = navigator.currentScreen,
                                 onNavigate = { navigator.navigateTo(it) }
@@ -85,10 +87,20 @@ fun App() {
                     }
                 ) { padding ->
                     Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-                        if (storeDetailId != null) {
+                        if (storeInfoId != null) {
+                            // "Sobre a loja" abre por cima da vitrine.
                             StoreInfoScreen(
-                                store = findMockStore(storeDetailId),
-                                onBackClick = { navigator.closeStore() }
+                                store = findMockStore(storeInfoId),
+                                onBackClick = { navigator.closeStoreInfo() }
+                            )
+                        } else if (storeDetailId != null) {
+                            // Vitrine da loja (cardápio + produtos).
+                            StoreDetailScreen(
+                                storeId = storeDetailId,
+                                cart = cartState,
+                                onBackClick = { navigator.closeStore() },
+                                onNavigateToCart = { navigator.navigateTo(AppScreen.CART) },
+                                onNavigateToInfo = { navigator.openStoreInfo(storeDetailId) }
                             )
                         } else {
                             when (navigator.currentScreen) {
