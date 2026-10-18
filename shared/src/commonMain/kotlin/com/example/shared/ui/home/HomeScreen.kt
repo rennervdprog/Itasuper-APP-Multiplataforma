@@ -106,6 +106,8 @@ import com.example.shared.theme.SoraFontFamily
 import com.example.shared.ui.mock.mockProducts
 import com.example.shared.ui.mock.mockStores
 import com.example.shared.ui.mock.mockUserSession
+import com.example.shared.ui.permissions.LocationAndPermissionsDialog
+import com.example.shared.ui.permissions.PlatformPermissions
 import kotlinx.datetime.Clock
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.TimeZone
@@ -319,6 +321,9 @@ fun HomeScreen(
     var showAddressForm by remember { mutableStateOf(false) }
     var addressFormError by remember { mutableStateOf<String?>(null) }
     var isRefreshingLocation by remember { mutableStateOf(false) }
+    // ITEM 6/6: diálogo contextual de permissão de localização (espelha o
+    // HomeScreen do app Android: mostra o diálogo quando ainda não há permissão).
+    var showLocationPermissionDialog by remember { mutableStateOf(false) }
     var isLookingUpCep by remember { mutableStateOf(false) }
     var isSavingAddress by remember { mutableStateOf(false) }
 
@@ -346,6 +351,26 @@ fun HomeScreen(
     var currentNumber by remember { mutableStateOf(session.activeLocationNumber) }
     var currentNeighborhood by remember { mutableStateOf(session.activeLocationNeighborhood) }
     var currentCity by remember { mutableStateOf(session.activeLocationCity) }
+
+    // ITEM 6/6: leitura do GPS (extraída para ser chamada tanto do
+    // onAllowLocation — quando a permissão já existe — quanto do resultado do
+    // LocationAndPermissionsDialog; espelha viewModel.fetchGpsLocation do original).
+    fun fetchGpsLocation() {
+        isRefreshingLocation = true
+        addressScope.launch {
+            val coords = LocationProvider.getCurrentLocation()
+            if (coords != null) {
+                // TODO(fase-rede): geocodificação reversa real da coordenada
+                // (rua/número/bairro/cidade de verdade).
+                currentStreet = "Av. Getúlio Vargas"
+                currentNumber = "500"
+                currentNeighborhood = "Centro"
+                currentCity = "Araruama"
+            }
+            isRefreshingLocation = false
+        }
+    }
+
     val activeCity = session.addressCity.ifBlank { "Araruama" }
     val categories = remember { mockHomeCategories() }
     val banners = remember { mockHomeBanners() }
@@ -490,26 +515,28 @@ fun HomeScreen(
         onUseRegisteredAddress = { showAddressChoiceDialog = false },
         onAllowLocation = {
             showAddressChoiceDialog = false
-            // TODO(fase-rede): fluxo de permissão de localização (expect/actual
-            // por plataforma) antes de ler o GPS.
-            isRefreshingLocation = true
-            addressScope.launch {
-                val coords = LocationProvider.getCurrentLocation()
-                if (coords != null) {
-                    // TODO(fase-rede): geocodificação reversa real da coordenada
-                    // (rua/número/bairro/cidade de verdade).
-                    currentStreet = "Av. Getúlio Vargas"
-                    currentNumber = "500"
-                    currentNeighborhood = "Centro"
-                    currentCity = "Araruama"
-                }
-                isRefreshingLocation = false
+            // ITEM 6/6: fluxo de permissão de localização (expect/actual por
+            // plataforma; espelha o HomeScreen do app Android).
+            if (PlatformPermissions.hasLocationPermission()) {
+                fetchGpsLocation()
+            } else {
+                showLocationPermissionDialog = true
             }
         },
         onRegisterAddress = {
             showAddressChoiceDialog = false
             addressFormError = null
             showAddressForm = true
+        }
+    )
+
+    // ITEM 6/6: diálogo contextual de permissão de localização (migração 1:1 do
+    // original; no Android usa a ActivityResult API, no iOS é stub).
+    LocationAndPermissionsDialog(
+        showDialog = showLocationPermissionDialog,
+        onDismiss = { showLocationPermissionDialog = false },
+        onLocationPermissionResult = { granted ->
+            if (granted) fetchGpsLocation()
         }
     )
 
