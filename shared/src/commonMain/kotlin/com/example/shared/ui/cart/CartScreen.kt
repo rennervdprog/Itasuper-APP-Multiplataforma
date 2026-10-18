@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -145,8 +146,11 @@ fun CartScreen(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color(0xFFFAFAFA)
-                )
-            )
+                ),
+                // O Scaffold raiz do App() ja aplica o inset da status bar;
+                // deixar o default (systemBars) aqui duplicaria o espaco no topo.
+                windowInsets = WindowInsets(0, 0, 0, 0)
+)
         }
     ) { innerPadding ->
         if (cart.items.isEmpty()) {
