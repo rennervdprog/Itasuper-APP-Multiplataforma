@@ -237,3 +237,102 @@ fun mockSavedAddresses(): List<com.example.shared.model.SavedAddress> = listOf(
         cep = "28970-020"
     )
 )
+// ─── Mocks da vitrine da loja (StoreDetailScreen) ───────────────────────────
+// TODO(fase-rede): trocar por SupabaseClient via Ktor (produtos e seções reais).
+
+fun mockMenuSections(storeId: String): List<com.example.shared.model.MenuSection> = when (storeId) {
+    "s1" -> listOf(
+        com.example.shared.model.MenuSection(id = "sec-s1-1", storeId = storeId, name = "Pastéis", sortOrder = 1),
+        com.example.shared.model.MenuSection(id = "sec-s1-2", storeId = storeId, name = "Bebidas", sortOrder = 2)
+    )
+    "s2" -> listOf(
+        com.example.shared.model.MenuSection(id = "sec-s2-1", storeId = storeId, name = "Bolos", sortOrder = 1),
+        com.example.shared.model.MenuSection(id = "sec-s2-2", storeId = storeId, name = "Doces", sortOrder = 2)
+    )
+    "s3" -> listOf(
+        com.example.shared.model.MenuSection(id = "sec-s3-1", storeId = storeId, name = "Açaís", sortOrder = 1),
+        com.example.shared.model.MenuSection(id = "sec-s3-2", storeId = storeId, name = "Complementos", sortOrder = 2)
+    )
+    "s4" -> listOf(
+        com.example.shared.model.MenuSection(id = "sec-s4-1", storeId = storeId, name = "Marmitas", sortOrder = 1)
+    )
+    "s5" -> listOf(
+        com.example.shared.model.MenuSection(id = "sec-s5-1", storeId = storeId, name = "Pizzas", sortOrder = 1),
+        com.example.shared.model.MenuSection(id = "sec-s5-2", storeId = storeId, name = "Bebidas", sortOrder = 2)
+    )
+    else -> emptyList()
+}
+
+fun mockStoreProducts(storeId: String): List<com.example.shared.model.Product> = when (storeId) {
+    "s1" -> listOf(
+        com.example.shared.model.Product(id = "p1", storeId = "s1", name = "Pastel de Carne",
+            description = "Pastel crocante recheado com carne moída temperada", price = 12.90,
+            category = "Pastéis", sectionId = "sec-s1-1", isPastelFlavor = true),
+        com.example.shared.model.Product(id = "p2", storeId = "s1", name = "Pastel de Queijo",
+            description = "Pastel crocante com queijo mussarela derretido", price = 11.90,
+            category = "Pastéis", sectionId = "sec-s1-1", isPastelFlavor = true),
+        com.example.shared.model.Product(id = "p7", storeId = "s1", name = "Pastel de Frango",
+            description = "Pastel crocante de frango desfiado com catupiry", price = 13.90,
+            category = "Pastéis", sectionId = "sec-s1-1", isPastelFlavor = true),
+        com.example.shared.model.Product(id = "p8", storeId = "s1", name = "Pastel de Pizza",
+            description = "Queijo, presunto, tomate e orégano", price = 13.90,
+            originalPrice = 15.90, category = "Pastéis", sectionId = "sec-s1-1", isPastelFlavor = true),
+        com.example.shared.model.Product(id = "p9", storeId = "s1", name = "Refrigerante Lata",
+            description = "Coca-Cola, Guaraná ou Fanta — 350ml", price = 6.90,
+            category = "Bebidas", sectionId = "sec-s1-2", isBeverage = true),
+        com.example.shared.model.Product(id = "p10", storeId = "s1", name = "Suco Natural",
+            description = "Laranja, maracujá ou limonada — 500ml", price = 8.90,
+            category = "Bebidas", sectionId = "sec-s1-2", isBeverage = true)
+    )
+    "s2" -> listOf(
+        com.example.shared.model.Product(id = "p3", storeId = "s2", name = "Bolo de Chocolate",
+            description = "Bolo fofinho de chocolate com cobertura", price = 18.00,
+            category = "Bolos", sectionId = "sec-s2-1"),
+        com.example.shared.model.Product(id = "p11", storeId = "s2", name = "Bolo de Cenoura",
+            description = "Bolo de cenoura com brigadeiro", price = 16.00,
+            originalPrice = 19.00, category = "Bolos", sectionId = "sec-s2-1"),
+        com.example.shared.model.Product(id = "p12", storeId = "s2", name = "Brigadeiro",
+            description = "Brigadeiro gourmet — unidade", price = 3.50,
+            category = "Doces", sectionId = "sec-s2-2"),
+        com.example.shared.model.Product(id = "p13", storeId = "s2", name = "Beijinho",
+            description = "Beijinho de coco — unidade", price = 3.50,
+            category = "Doces", sectionId = "sec-s2-2")
+    )
+    "s3" -> listOf(
+        com.example.shared.model.Product(id = "p4", storeId = "s3", name = "Açaí 500ml",
+            description = "Açaí cremoso com 2 acompanhamentos grátis", price = 16.90,
+            category = "Açaís", sectionId = "sec-s3-1"),
+        com.example.shared.model.Product(id = "p14", storeId = "s3", name = "Açaí 700ml",
+            description = "Açaí cremoso com 3 acompanhamentos grátis", price = 21.90,
+            category = "Açaís", sectionId = "sec-s3-1"),
+        com.example.shared.model.Product(id = "p15", storeId = "s3", name = "Granola Extra",
+            description = "Porção extra de granola crocante", price = 3.00,
+            category = "Complementos", sectionId = "sec-s3-2"),
+        com.example.shared.model.Product(id = "p16", storeId = "s3", name = "Leite Ninho Extra",
+            description = "Porção extra de leite ninho", price = 4.00,
+            category = "Complementos", sectionId = "sec-s3-2")
+    )
+    "s4" -> listOf(
+        com.example.shared.model.Product(id = "p5", storeId = "s4", name = "Marmita Executiva",
+            description = "Arroz, feijão, bife, batata frita e salada", price = 22.90,
+            category = "Marmitas", sectionId = "sec-s4-1"),
+        com.example.shared.model.Product(id = "p17", storeId = "s4", name = "Marmita Fitness",
+            description = "Frango grelhado, arroz integral e legumes", price = 24.90,
+            category = "Marmitas", sectionId = "sec-s4-1")
+    )
+    "s5" -> listOf(
+        com.example.shared.model.Product(id = "p6", storeId = "s5", name = "Pizza Calabresa Grande",
+            description = "Calabresa, cebola, mussarela e orégano — 8 fatias", price = 49.90,
+            category = "Pizzas", sectionId = "sec-s5-1", pizzaCategoryId = "cat-pizza"),
+        com.example.shared.model.Product(id = "p18", storeId = "s5", name = "Pizza Marguerita",
+            description = "Mussarela, tomate, manjericão e orégano — 8 fatias", price = 44.90,
+            category = "Pizzas", sectionId = "sec-s5-1", pizzaCategoryId = "cat-pizza"),
+        com.example.shared.model.Product(id = "p19", storeId = "s5", name = "Pizza Portuguesa",
+            description = "Presunto, ovos, cebola, ervilha e mussarela — 8 fatias", price = 52.90,
+            originalPrice = 59.90, category = "Pizzas", sectionId = "sec-s5-1", pizzaCategoryId = "cat-pizza"),
+        com.example.shared.model.Product(id = "p20", storeId = "s5", name = "Refrigerante 2L",
+            description = "Coca-Cola ou Guaraná — 2 litros", price = 11.90,
+            category = "Bebidas", sectionId = "sec-s5-2", isBeverage = true)
+    )
+    else -> emptyList()
+}
