@@ -79,8 +79,8 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
-import shared.generated.resources.Res
-import shared.generated.resources.ic_home_placeholder_smile
+import com.example.shared.generated.resources.Res
+import com.example.shared.generated.resources.ic_home_placeholder_smile
 import org.jetbrains.compose.resources.painterResource
 import com.example.shared.model.MenuSection
 import com.example.shared.model.Product

@@ -6,6 +6,15 @@ plugins {
     alias(libs.plugins.android.library)
 }
 
+// fase-recursos: pacote determinístico para o Res gerado a partir de
+// commonMain/composeResources (o default do plugin deriva de group/module,
+// que não é estável aqui).
+compose {
+    resources {
+        packageOfResClass = "com.example.shared.generated.resources"
+    }
+}
+
 kotlin {
     androidTarget()
 

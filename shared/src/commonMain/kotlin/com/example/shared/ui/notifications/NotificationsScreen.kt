@@ -54,11 +54,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import shared.generated.resources.Res
-import shared.generated.resources.ic_ita_bell
-import shared.generated.resources.ic_ita_check
-import shared.generated.resources.ic_ita_delivery
-import shared.generated.resources.ic_ita_refresh
+import com.example.shared.generated.resources.Res
+import com.example.shared.generated.resources.ic_ita_bell
+import com.example.shared.generated.resources.ic_ita_check
+import com.example.shared.generated.resources.ic_ita_delivery
+import com.example.shared.generated.resources.ic_ita_refresh
 import org.jetbrains.compose.resources.painterResource
 import com.example.shared.model.ClientNotification
 import com.example.shared.theme.ItaSuperBackground
