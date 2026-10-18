@@ -78,6 +78,8 @@ import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ManropeFontFamily
 import com.example.shared.ui.mock.mockProducts
 import com.example.shared.ui.mock.mockStores
+import com.example.shared.ui.permissions.LocationAndPermissionsDialog
+import com.example.shared.ui.permissions.PlatformPermissions
 import kotlinx.coroutines.delay
 import kotlinx.datetime.Clock
 
@@ -249,6 +251,9 @@ fun SearchScreen(onStoreClick: (String) -> Unit) {
     var savedCollectionIds by remember { mutableStateOf(setOf("c2")) }
     var recentTerms by remember { mutableStateOf(discoverRecentSearches) }
     var isLoadingDiscovery by remember { mutableStateOf(true) }
+    // ITEM 6/6: diálogo contextual de permissão de localização (espelha o
+    // SearchScreen do app Android).
+    var showLocationPermissionDialog by remember { mutableStateOf(false) }
 
     // Skeleton breve na primeira pintura, como no app original enquanto carrega.
     LaunchedEffect(Unit) {
@@ -337,7 +342,15 @@ fun SearchScreen(onStoreClick: (String) -> Unit) {
             query = query,
             onQueryChange = { query = it },
             onClearQuery = { query = "" },
-            onLocationClick = {},
+            onLocationClick = {
+                // ITEM 6/6: espelha o SearchScreen do app Android — sem permissão,
+                // mostra o diálogo contextual de localização.
+                if (PlatformPermissions.hasLocationPermission()) {
+                    // TODO(fase-rede): buscar o GPS e atualizar a cidade do appbar.
+                } else {
+                    showLocationPermissionDialog = true
+                }
+            },
             onSubmit = {
                 val term = query.trim()
                 if (term.length >= 2 && term !in recentTerms) {
@@ -388,6 +401,16 @@ fun SearchScreen(onStoreClick: (String) -> Unit) {
             )
         }
     }
+
+    // ITEM 6/6: diálogo contextual de permissão de localização (migração 1:1 do
+    // original; no Android usa a ActivityResult API, no iOS é stub).
+    LocationAndPermissionsDialog(
+        showDialog = showLocationPermissionDialog,
+        onDismiss = { showLocationPermissionDialog = false },
+        onLocationPermissionResult = { _ ->
+            // TODO(fase-rede): buscar o GPS quando a permissão for concedida.
+        }
+    )
 }
 
 /** Appbar do protótipo: "Entregar em" + endereço + barra de busca. */
