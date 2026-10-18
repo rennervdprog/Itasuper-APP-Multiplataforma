@@ -7,6 +7,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.example.shared.model.CartItem
 import com.example.shared.model.Order
+import com.example.shared.model.Product
+import com.example.shared.model.SelectedAddonItem
 import com.example.shared.ui.mock.mockCartItems
 import com.example.shared.ui.mock.mockSavedAddresses
 import kotlin.math.abs
@@ -93,6 +95,38 @@ class CartHolder {
         storeName = "Pastelão Carioca"
         items = mockCartItems()
         deliveryFee = 4.90
+    }
+
+
+    /**
+     * Adiciona um produto na sacola (usado pela vitrine da loja).
+     * Se a sacola tem itens de outra loja, esvazia antes (simplificação
+     * do StoreSwitchBottomSheet do original; TODO(fase-rede): confirmar com o usuário).
+     */
+    fun addProduct(
+        product: Product,
+        quantity: Int = 1,
+        notes: String = "",
+        addons: List<SelectedAddonItem> = emptyList(),
+        storeName: String = ""
+    ) {
+        if (items.isNotEmpty() && storeId != null && storeId != product.storeId) {
+            clearCart()
+        }
+        if (storeId == null) {
+            storeId = product.storeId
+            if (storeName.isNotBlank()) this.storeName = storeName
+        }
+        val existing = items.indexOfFirst {
+            it.product.id == product.id && it.notes == notes && it.selectedAddons == addons
+        }
+        items = if (existing >= 0) {
+            items.toMutableList().also {
+                it[existing] = it[existing].copy(quantity = it[existing].quantity + quantity)
+            }
+        } else {
+            items + CartItem(product = product, quantity = quantity, notes = notes, selectedAddons = addons)
+        }
     }
 
     fun updateQuantity(productId: String, newQuantity: Int) {
