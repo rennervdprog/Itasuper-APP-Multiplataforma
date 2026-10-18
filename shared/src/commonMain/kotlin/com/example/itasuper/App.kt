@@ -160,7 +160,14 @@ fun App() {
                                     storeId = storeDetailId,
                                     cart = cartState,
                                     onBackClick = { navigator.closeStore() },
-                                    onNavigateToCart = { navigator.navigateTo(AppScreen.CART) },
+                                    onNavigateToCart = {
+                                        // Fecha a vitrine antes de abrir o carrinho.
+                                        // Sem o closeStore(), o storeDetailId continua setado e o
+                                        // if de renderizacao prioriza a vitrine: a tela do carrinho
+                                        // nunca aparece (bug "toca em Ver sacola e nada acontece").
+                                        navigator.closeStore()
+                                        navigator.navigateTo(AppScreen.CART)
+                                    },
                                     onNavigateToInfo = { navigator.openStoreInfo(storeDetailId) }
                                 )
                             } else {
