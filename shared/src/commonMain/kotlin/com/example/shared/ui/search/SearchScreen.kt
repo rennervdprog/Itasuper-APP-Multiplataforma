@@ -73,13 +73,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.example.shared.generated.resources.ic_cat_acai_3d
+import com.example.shared.generated.resources.ic_cat_bebidas_3d
+import com.example.shared.generated.resources.ic_cat_churrasco_3d
+import com.example.shared.generated.resources.ic_cat_farmacia_3d
+import com.example.shared.generated.resources.ic_cat_lanches_3d
+import com.example.shared.generated.resources.ic_cat_marmita_3d
+import com.example.shared.generated.resources.ic_cat_mercado_3d
+import com.example.shared.generated.resources.ic_cat_pastel_3d
+import com.example.shared.generated.resources.ic_cat_pizzaria_3d
 import com.example.shared.generated.resources.Res
-import com.example.shared.generated.resources.ic_preview_acai
-import com.example.shared.generated.resources.ic_preview_burger
-import com.example.shared.generated.resources.ic_preview_drink
-import com.example.shared.generated.resources.ic_preview_marmita
-import com.example.shared.generated.resources.ic_preview_pharmacy
-import com.example.shared.generated.resources.ic_preview_pizza
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
 import com.example.shared.model.DiscoverProduct
@@ -717,12 +720,15 @@ private fun DiscoverFilterChips(
 
 /** Mesmo mapeamento do app original (categoryDrawableId): id da categoria -> drawable. */
 private fun categoryDrawableResource(categoryId: String): DrawableResource? = when (categoryId.lowercase()) {
-    "pizzaria", "pizza" -> Res.drawable.ic_preview_pizza
-    "acai", "açaí" -> Res.drawable.ic_preview_acai
-    "marmita" -> Res.drawable.ic_preview_marmita
-    "bebidas", "bebida" -> Res.drawable.ic_preview_drink
-    "farmacia", "farmacias", "farmácia" -> Res.drawable.ic_preview_pharmacy
-    "lanches", "lanche", "hamburguer", "hambúrguer", "burger" -> Res.drawable.ic_preview_burger
+    "pizzaria", "pizza" -> Res.drawable.ic_cat_pizzaria_3d
+    "acai", "açaí" -> Res.drawable.ic_cat_acai_3d
+    "marmita" -> Res.drawable.ic_cat_marmita_3d
+    "bebidas", "bebida" -> Res.drawable.ic_cat_bebidas_3d
+    "farmacia", "farmacias", "farmácia" -> Res.drawable.ic_cat_farmacia_3d
+    "lanches", "lanche", "hamburguer", "hambúrguer", "burger" -> Res.drawable.ic_cat_lanches_3d
+    "churrasco" -> Res.drawable.ic_cat_churrasco_3d
+    "mercado", "mercados" -> Res.drawable.ic_cat_mercado_3d
+    "pastel", "pasteis", "pastéis" -> Res.drawable.ic_cat_pastel_3d
     else -> null
 }
 
