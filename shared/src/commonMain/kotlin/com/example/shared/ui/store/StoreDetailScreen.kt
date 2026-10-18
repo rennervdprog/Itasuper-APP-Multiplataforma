@@ -88,6 +88,7 @@ import com.example.shared.theme.ItaSuperSecondary
 import com.example.shared.theme.ItaSuperTextPrimary
 import com.example.shared.theme.ItaSuperWarning
 import com.example.shared.ui.cart.CartState
+import com.example.shared.ui.cart.CartState
 import com.example.shared.ui.cart.formatBRL
 import com.example.shared.ui.mock.findMockStore
 import com.example.shared.ui.mock.mockMenuSections
