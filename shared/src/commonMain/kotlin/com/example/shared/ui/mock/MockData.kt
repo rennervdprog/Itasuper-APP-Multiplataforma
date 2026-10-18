@@ -88,11 +88,15 @@ fun mockOrders(): List<com.example.shared.model.Order> = listOf(
         total = 30.70,
         paymentMethod = "pix",
         deliveryAddress = "Rua das Palmeiras, 123 - Centro",
-        status = "preparando",
+        status = "saiu_entrega",
         createdAt = "2026-10-17T12:30:00",
         neighborhood = "Centro",
         deliveryCity = "Araruama",
-        deliveryState = "RJ"
+        deliveryState = "RJ",
+        // Rastreio: pedido a caminho, com entregador e posição do cliente (Araruama/RJ).
+        driverId = "driver-1",
+        clientLatitude = -22.8728,
+        clientLongitude = -42.3414
     ),
     com.example.shared.model.Order(
         id = "b2c3d4e5-f6a7-8901",
@@ -335,4 +339,20 @@ fun mockStoreProducts(storeId: String): List<com.example.shared.model.Product> =
             category = "Bebidas", sectionId = "sec-s5-2", isBeverage = true)
     )
     else -> emptyList()
+}
+
+// ─── Mocks rastreio de entrega (DeliveryTrackingScreen) ───────────────────────
+// TODO(fase-rede): SupabaseClient.fetchDriverLocation(driverId) real via Ktor
+// (tabela driver_locations).
+
+fun mockDriverLocation(orderId: String): com.example.shared.model.DriverLocation? {
+    val order = mockOrders().find { it.id == orderId } ?: return null
+    if (order.driverId.isBlank()) return null
+    return com.example.shared.model.DriverLocation(
+        driverId = order.driverId,
+        // Entregador a algumas quadras do cliente (Araruama/RJ).
+        latitude = (order.clientLatitude ?: -22.8728) + 0.0045,
+        longitude = (order.clientLongitude ?: -42.3414) - 0.0032,
+        updatedAt = "2026-10-18T01:30:00"
+    )
 }
