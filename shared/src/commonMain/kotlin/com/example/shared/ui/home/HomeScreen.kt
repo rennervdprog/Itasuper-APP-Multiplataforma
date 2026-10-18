@@ -69,6 +69,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,6 +92,7 @@ import com.example.shared.model.Order
 import com.example.shared.model.Store
 import com.example.shared.model.StoreWithCoupon
 import com.example.shared.network.SupabaseApi
+import com.example.shared.platform.LocationProvider
 import com.example.shared.theme.ItaSuperHighlightBg
 import com.example.shared.theme.ItaSuperHighlightText
 import com.example.shared.theme.ItaSuperPrimary
@@ -108,6 +110,8 @@ import kotlinx.datetime.Clock
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.round
 
 /**
@@ -307,7 +311,35 @@ fun HomeScreen(
     var isDirectDeliveryActive by remember { mutableStateOf(false) }
     var storeSort by remember { mutableStateOf(HomeStoreSort.RELEVANCE) }
 
+    // ITEM 3/6: estado dos diálogos de endereço/localização (no original vive
+    // no HomeViewModel; fluxos reais de GPS/CEP/rede virão na fase-rede).
+    val addressScope = rememberCoroutineScope()
+    var showAddressChoiceDialog by remember { mutableStateOf(false) }
+    var showAddressForm by remember { mutableStateOf(false) }
+    var addressFormError by remember { mutableStateOf<String?>(null) }
+    var isRefreshingLocation by remember { mutableStateOf(false) }
+    var isLookingUpCep by remember { mutableStateOf(false) }
+    var isSavingAddress by remember { mutableStateOf(false) }
+
     val session = remember { mockUserSession() }
+    var addressDraft by remember {
+        mutableStateOf(
+            AddressDraft(
+                cep = session.addressCep,
+                street = session.addressStreet,
+                number = session.addressNumber,
+                neighborhood = session.addressNeighborhood,
+                city = session.addressCity,
+                state = session.addressState
+            )
+        )
+    }
+    // Endereço "atual" vindo do GPS (mock até a fase-rede ligar a
+    // geocodificação reversa de verdade).
+    var currentStreet by remember { mutableStateOf(session.activeLocationStreet) }
+    var currentNumber by remember { mutableStateOf(session.activeLocationNumber) }
+    var currentNeighborhood by remember { mutableStateOf(session.activeLocationNeighborhood) }
+    var currentCity by remember { mutableStateOf(session.activeLocationCity) }
     val activeCity = session.addressCity.ifBlank { "Araruama" }
     val categories = remember { mockHomeCategories() }
     val banners = remember { mockHomeBanners() }
@@ -334,7 +366,8 @@ fun HomeScreen(
             streetNumber = session.addressNumber,
             activeCity = activeCity,
             onNotificationsClick = { /* TODO(fase-rede): tela de avisos */ },
-            onCartClick = onCartClick
+            onCartClick = onCartClick,
+            onAddressClick = { showAddressChoiceDialog = true }
         )
 
         HomeSearchSection(
@@ -417,7 +450,7 @@ fun HomeScreen(
             onToggleDirectDelivery = { isDirectDeliveryActive = !isDirectDeliveryActive },
             onStoreSortSelect = { storeSort = it },
             onRetry = { },
-            onInformAddress = { },
+            onInformAddress = { showAddressChoiceDialog = true },
             onStoreClick = onStoreClick,
             // Sem categoria: a Busca abre o catálogo completo da cidade.
             onViewAllStores = onSearchClick
@@ -427,6 +460,86 @@ fun HomeScreen(
         // cortada e o catálogo completo continua acessível pela Busca.
         Spacer(modifier = Modifier.height(18.dp))
     }
+
+    // ITEM 3/6: diálogos de endereço/localização (migração 1:1 do original).
+    LocationOrAddressDialog(
+        visible = showAddressChoiceDialog,
+        registeredStreet = session.addressStreet,
+        registeredNumber = session.addressNumber,
+        registeredNeighborhood = session.addressNeighborhood,
+        registeredCity = session.addressCity,
+        currentStreet = currentStreet,
+        currentNumber = currentNumber,
+        currentNeighborhood = currentNeighborhood,
+        currentCity = currentCity,
+        isRefreshingLocation = isRefreshingLocation,
+        onDismiss = { showAddressChoiceDialog = false },
+        // TODO(fase-rede): aplicar o endereço cadastrado como endereço ativo.
+        onUseRegisteredAddress = { showAddressChoiceDialog = false },
+        onAllowLocation = {
+            showAddressChoiceDialog = false
+            // TODO(fase-rede): fluxo de permissão de localização (expect/actual
+            // por plataforma) antes de ler o GPS.
+            isRefreshingLocation = true
+            addressScope.launch {
+                val coords = LocationProvider.getCurrentLocation()
+                if (coords != null) {
+                    // TODO(fase-rede): geocodificação reversa real da coordenada
+                    // (rua/número/bairro/cidade de verdade).
+                    currentStreet = "Av. Getúlio Vargas"
+                    currentNumber = "500"
+                    currentNeighborhood = "Centro"
+                    currentCity = "Araruama"
+                }
+                isRefreshingLocation = false
+            }
+        },
+        onRegisterAddress = {
+            showAddressChoiceDialog = false
+            addressFormError = null
+            showAddressForm = true
+        }
+    )
+
+    AddressRegistrationSheet(
+        visible = showAddressForm,
+        draft = addressDraft,
+        isLookingUpCep = isLookingUpCep,
+        isSaving = isSavingAddress,
+        errorMessage = addressFormError,
+        onDismiss = { showAddressForm = false },
+        onDraftChange = { transform -> addressDraft = transform(addressDraft) },
+        onLookupCep = {
+            isLookingUpCep = true
+            addressFormError = null
+            addressScope.launch {
+                delay(900)
+                // TODO(fase-rede): consulta real ao ViaCEP via Ktor.
+                addressDraft = addressDraft.copy(
+                    street = addressDraft.street.ifBlank { "Rua das Palmeiras" },
+                    neighborhood = addressDraft.neighborhood.ifBlank { "Centro" },
+                    city = addressDraft.city.ifBlank { "Araruama" },
+                    state = addressDraft.state.ifBlank { "RJ" }
+                )
+                isLookingUpCep = false
+            }
+        },
+        onSave = {
+            if (addressDraft.street.isBlank() || addressDraft.city.isBlank()) {
+                addressFormError = "Preencha a rua e a cidade para continuar."
+            } else {
+                isSavingAddress = true
+                addressFormError = null
+                addressScope.launch {
+                    delay(900)
+                    // TODO(fase-rede): persistir em saved_addresses (Supabase).
+                    isSavingAddress = false
+                    showAddressForm = false
+                    showAddressChoiceDialog = false
+                }
+            }
+        }
+    )
 }
 
 @Composable
@@ -435,7 +548,8 @@ private fun HomeHeaderSection(
     streetNumber: String,
     activeCity: String,
     onNotificationsClick: () -> Unit,
-    onCartClick: () -> Unit
+    onCartClick: () -> Unit,
+    onAddressClick: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -467,7 +581,7 @@ private fun HomeHeaderSection(
                 val hasAddress = displayAddress.isNotBlank() || activeCity.isNotBlank()
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { /* TODO(fase-rede): diálogo de endereço */ }
+                    modifier = Modifier.clickable { onAddressClick() }
                 ) {
                     Icon(
                         imageVector = Icons.Filled.LocationOn,
