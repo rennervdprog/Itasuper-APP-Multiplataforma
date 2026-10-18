@@ -22,6 +22,7 @@ import com.example.shared.ui.cart.rememberCartState
 import com.example.shared.ui.home.HomeScreen
 import com.example.shared.ui.mock.findMockStore
 import com.example.shared.ui.notifications.NotificationsScreen
+import com.example.shared.ui.orders.DeliveryTrackingScreen
 import com.example.shared.ui.orders.OrdersScreen
 import com.example.shared.ui.profile.ProfileScreen
 import com.example.shared.ui.navigation.AppScreen
@@ -37,6 +38,8 @@ import com.example.shared.ui.navigation.rememberAppNavigator
  * Fase 3d: gate de autenticação — sem sessão, mostra a AuthScreen em tela
  * cheia; o login mockado (TODO fase-rede) libera o restante do app.
  * Fase 3e: carrinho + checkout + confirmação (estado em CartHolder, mocks).
+ * Rastreio: DeliveryTrackingScreen ("Acompanhar entrega") abre em tela cheia
+ * via navigator.trackingOrderId, a partir do botão no card do pedido em andamento.
  */
 @Composable
 fun App() {
@@ -72,13 +75,14 @@ fun App() {
             } else {
                 val storeDetailId = navigator.storeDetailId
                 val storeInfoId = navigator.storeInfoId
+                val trackingOrderId = navigator.trackingOrderId
                 val fullScreenCartFlow = navigator.currentScreen == AppScreen.CART ||
                         navigator.currentScreen == AppScreen.CHECKOUT
                 Scaffold(
                     bottomBar = {
-                        // Vitrine, "Sobre a loja" e fluxo do carrinho ocupam a tela toda
+                        // Vitrine, "Sobre a loja", rastreio e fluxo do carrinho ocupam a tela toda
                         // (têm botão voltar próprio).
-                        if (storeDetailId == null && storeInfoId == null && !fullScreenCartFlow) {
+                        if (storeDetailId == null && storeInfoId == null && trackingOrderId == null && !fullScreenCartFlow) {
                             ItaSuperBottomNavBar(
                                 currentScreen = navigator.currentScreen,
                                 onNavigate = { navigator.navigateTo(it) }
@@ -87,7 +91,13 @@ fun App() {
                     }
                 ) { padding ->
                     Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-                        if (storeInfoId != null) {
+                        if (trackingOrderId != null) {
+                            // Rastreio da entrega (a partir do pedido em andamento).
+                            DeliveryTrackingScreen(
+                                orderId = trackingOrderId,
+                                onBack = { navigator.closeTracking() }
+                            )
+                        } else if (storeInfoId != null) {
                             // "Sobre a loja" abre por cima da vitrine.
                             StoreInfoScreen(
                                 store = findMockStore(storeInfoId),
@@ -114,7 +124,8 @@ fun App() {
                                     onStoreClick = { navigator.openStore(it) }
                                 )
                                 AppScreen.ORDERS -> OrdersScreen(
-                                    onExploreClick = { navigator.navigateTo(AppScreen.HOME) }
+                                    onExploreClick = { navigator.navigateTo(AppScreen.HOME) },
+                                    onTrackDelivery = { navigator.openTracking(it) }
                                 )
                                 AppScreen.NOTIFICATIONS -> NotificationsScreen()
                                 AppScreen.PROFILE -> ProfileScreen(
