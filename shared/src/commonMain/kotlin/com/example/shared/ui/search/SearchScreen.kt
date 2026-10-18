@@ -443,7 +443,7 @@ private fun DiscoverAppBar(
         Text(
             text = "Entregar em",
             style = TextStyle(
-                fontFamily = ManropeFontFamily,
+                fontFamily = ManropeFontFamily(),
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 11.5.sp,
                 color = DscInk2
@@ -466,7 +466,7 @@ private fun DiscoverAppBar(
             Text(
                 text = city.ifBlank { "Sua cidade" },
                 style = TextStyle(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 15.sp,
                     color = DscInk
@@ -498,7 +498,7 @@ private fun DiscoverAppBar(
                     .weight(1f)
                     .testTag("search_input"),
                 textStyle = TextStyle(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontSize = 14.sp,
                     color = DscInk
                 ),
@@ -514,7 +514,7 @@ private fun DiscoverAppBar(
                         Text(
                             text = "Buscar restaurantes e pratos",
                             style = TextStyle(
-                                fontFamily = ManropeFontFamily,
+                                fontFamily = ManropeFontFamily(),
                                 fontSize = 14.sp,
                                 color = DscInk2
                             ),
@@ -701,7 +701,7 @@ private fun DiscoverFilterChips(
                 Text(
                     text = filter.label,
                     style = TextStyle(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 13.sp,
                         color = if (isSelected) DscBg else DscInk
@@ -780,7 +780,7 @@ private fun DiscoverCategoryGrid(
                         Text(
                             text = category.name.take(1).uppercase(),
                             style = TextStyle(
-                                fontFamily = ManropeFontFamily,
+                                fontFamily = ManropeFontFamily(),
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 19.sp,
                                 color = ItaSuperPrimary
@@ -792,7 +792,7 @@ private fun DiscoverCategoryGrid(
                 Text(
                     text = category.name,
                     style = TextStyle(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 11.sp,
                         color = if (isSelected) ItaSuperPrimary else DscInk
@@ -823,7 +823,7 @@ private fun PSecHeader(
         Text(
             text = title,
             style = TextStyle(
-                fontFamily = ManropeFontFamily,
+                fontFamily = ManropeFontFamily(),
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 17.5.sp,
                 color = DscInk
@@ -843,7 +843,7 @@ private fun PSecHeader(
                     onClick = { onActionClick?.invoke() }
                 ),
                 style = TextStyle(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp,
                     color = ItaSuperPrimary
@@ -908,7 +908,7 @@ private fun PromoCarousel(
                         Text(
                             text = banner.tag.uppercase(),
                             style = TextStyle(
-                                fontFamily = ManropeFontFamily,
+                                fontFamily = ManropeFontFamily(),
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 10.sp,
                                 letterSpacing = 0.08.em,
@@ -920,7 +920,7 @@ private fun PromoCarousel(
                     Text(
                         text = banner.title,
                         style = TextStyle(
-                            fontFamily = ManropeFontFamily,
+                            fontFamily = ManropeFontFamily(),
                             fontWeight = FontWeight.Black,
                             fontSize = 26.sp,
                             lineHeight = 28.sp,
@@ -933,7 +933,7 @@ private fun PromoCarousel(
                     Text(
                         text = banner.subtitle,
                         style = TextStyle(
-                            fontFamily = ManropeFontFamily,
+                            fontFamily = ManropeFontFamily(),
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
                             color = Color.White.copy(alpha = 0.92f)
@@ -1009,7 +1009,7 @@ private fun DishCard(item: OrderAgainItem, onReorder: () -> Unit) {
         Text(
             text = item.productName,
             style = TextStyle(
-                fontFamily = ManropeFontFamily,
+                fontFamily = ManropeFontFamily(),
                 fontWeight = FontWeight.Bold,
                 fontSize = 13.5.sp,
                 lineHeight = 17.sp,
@@ -1022,7 +1022,7 @@ private fun DishCard(item: OrderAgainItem, onReorder: () -> Unit) {
         Text(
             text = item.storeName,
             style = TextStyle(
-                fontFamily = ManropeFontFamily,
+                fontFamily = ManropeFontFamily(),
                 fontSize = 12.sp,
                 color = DscInk2
             ),
@@ -1038,7 +1038,7 @@ private fun DishCard(item: OrderAgainItem, onReorder: () -> Unit) {
             Text(
                 text = dscMoney(item.price),
                 style = TextStyle(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 13.sp,
                     color = DscInk
@@ -1056,7 +1056,7 @@ private fun DishCard(item: OrderAgainItem, onReorder: () -> Unit) {
                 Text(
                     text = "Pedir de novo",
                     style = TextStyle(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontWeight = FontWeight.Bold,
                         fontSize = 11.5.sp,
                         color = Color.White
@@ -1133,7 +1133,7 @@ private fun RestCard(
                     Text(
                         text = store.name.take(1).uppercase(),
                         style = TextStyle(
-                            fontFamily = ManropeFontFamily,
+                            fontFamily = ManropeFontFamily(),
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 20.sp,
                             color = ItaSuperPrimary
@@ -1147,7 +1147,7 @@ private fun RestCard(
                     Text(
                         text = store.name,
                         style = TextStyle(
-                            fontFamily = ManropeFontFamily,
+                            fontFamily = ManropeFontFamily(),
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 14.sp,
                             color = if (store.isOpen) DscInk else DscInk2
@@ -1167,7 +1167,7 @@ private fun RestCard(
                             Text(
                                 text = "Cupom",
                                 style = TextStyle(
-                                    fontFamily = ManropeFontFamily,
+                                    fontFamily = ManropeFontFamily(),
                                     fontWeight = FontWeight.ExtraBold,
                                     fontSize = 10.5.sp,
                                     color = Color.White
@@ -1189,7 +1189,7 @@ private fun RestCard(
                         }
                     },
                     style = TextStyle(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontSize = 12.sp,
                         color = DscInk2
                     ),
@@ -1243,7 +1243,7 @@ private fun ProtoCollectionCard(
                 text = collection.stores.firstOrNull()?.name?.take(1)
                     ?.uppercase() ?: "\u2605",
                 style = TextStyle(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 18.sp,
                     color = ItaSuperPrimary
@@ -1253,7 +1253,7 @@ private fun ProtoCollectionCard(
         Text(
             text = collection.title,
             style = TextStyle(
-                fontFamily = ManropeFontFamily,
+                fontFamily = ManropeFontFamily(),
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 14.sp,
                 lineHeight = 17.sp,
@@ -1265,7 +1265,7 @@ private fun ProtoCollectionCard(
         Text(
             text = collection.subtitle,
             style = TextStyle(
-                fontFamily = ManropeFontFamily,
+                fontFamily = ManropeFontFamily(),
                 fontSize = 11.sp,
                 color = DscInk2
             ),
@@ -1285,7 +1285,7 @@ private fun ProtoCollectionCard(
             Text(
                 text = if (collection.saved) "Salva" else "Salvar",
                 style = TextStyle(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 12.sp,
                     color = if (collection.saved) Color.White else DscInk
@@ -1382,7 +1382,7 @@ private fun ProtoDealCard(
                 Text(
                     text = deal.discountBadge,
                     style = TextStyle(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 22.sp,
                         color = ItaSuperPrimary
@@ -1398,7 +1398,7 @@ private fun ProtoDealCard(
             Text(
                 text = deal.discountBadge,
                 style = TextStyle(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 17.sp,
                     color = ItaSuperPrimary
@@ -1410,7 +1410,7 @@ private fun ProtoDealCard(
             Text(
                 text = deal.title,
                 style = TextStyle(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 12.5.sp,
                     lineHeight = 16.sp,
@@ -1424,7 +1424,7 @@ private fun ProtoDealCard(
                 Text(
                     text = sub,
                     style = TextStyle(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontSize = 11.5.sp,
                         color = DscInk2
                     ),
@@ -1465,7 +1465,7 @@ private fun ProtoDealCard(
                 Text(
                     text = if (storeName.isNotBlank()) "Pedir agora" else "Ver lojas",
                     style = TextStyle(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontWeight = FontWeight.Bold,
                         fontSize = 12.sp,
                         color = ItaSuperPrimary
@@ -1498,7 +1498,7 @@ private fun ProtoCountdownPill(endsAtMillis: Long) {
         Text(
             text = "Termina em ${formatCountdown(remaining)}",
             style = TextStyle(
-                fontFamily = ManropeFontFamily,
+                fontFamily = ManropeFontFamily(),
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 11.5.sp,
                 color = DscBg
@@ -1551,7 +1551,7 @@ private fun UtilitySection(
                     Text(
                         text = cat,
                         style = TextStyle(
-                            fontFamily = ManropeFontFamily,
+                            fontFamily = ManropeFontFamily(),
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 13.sp,
                             color = if (isSelected) DscBg else DscInk
@@ -1603,7 +1603,7 @@ private fun ProtoUtilityStoreRow(store: Store, onClick: () -> Unit) {
                     Text(
                         text = store.name.take(1).uppercase(),
                         style = TextStyle(
-                            fontFamily = ManropeFontFamily,
+                            fontFamily = ManropeFontFamily(),
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 17.sp,
                             color = Color.White
@@ -1620,7 +1620,7 @@ private fun ProtoUtilityStoreRow(store: Store, onClick: () -> Unit) {
                 Text(
                     text = store.name,
                     style = TextStyle(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.5.sp,
                         color = DscInk
@@ -1634,7 +1634,7 @@ private fun ProtoUtilityStoreRow(store: Store, onClick: () -> Unit) {
                         if (store.deliveryTime.isNotBlank()) append(" · ${store.deliveryTime}")
                     },
                     style = TextStyle(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontSize = 12.sp,
                         color = DscInk2
                     ),
@@ -1646,7 +1646,7 @@ private fun ProtoUtilityStoreRow(store: Store, onClick: () -> Unit) {
                 Text(
                     text = formatDistanceKm(km),
                     style = TextStyle(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontWeight = FontWeight.Bold,
                         fontSize = 12.sp,
                         color = DscInk2
@@ -1778,7 +1778,7 @@ private fun DiscoverResults(
                 Text(
                     text = "Busque por restaurantes e pratos",
                     style = TextStyle(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontSize = 14.sp,
                         color = DscInk2
                     )
@@ -1806,7 +1806,7 @@ private fun DiscoverResults(
                     Text(
                         text = term,
                         style = TextStyle(
-                            fontFamily = ManropeFontFamily,
+                            fontFamily = ManropeFontFamily(),
                             fontSize = 14.sp,
                             color = DscInk
                         ),
@@ -1834,7 +1834,7 @@ private fun DiscoverResults(
                 Text(
                     text = "Nenhuma loja bate com esse filtro. Toca de novo no filtro pra limpar.",
                     style = TextStyle(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontSize = 13.5.sp,
                         color = DscInk2
                     )
@@ -1846,7 +1846,7 @@ private fun DiscoverResults(
                         .clickable(onClick = onClearAll)
                         .testTag("clear_discovery_button"),
                     style = TextStyle(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
                         color = ItaSuperPrimary
@@ -1869,7 +1869,7 @@ private fun DiscoverResults(
                     .testTag("clear_discovery_button")
                     .padding(horizontal = 18.dp, vertical = 12.dp),
                 style = TextStyle(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp,
                     color = ItaSuperPrimary
@@ -1921,7 +1921,7 @@ private fun DiscoverResults(
                         Text(
                             text = product.name,
                             style = TextStyle(
-                                fontFamily = ManropeFontFamily,
+                                fontFamily = ManropeFontFamily(),
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 15.sp,
                                 color = DscInk
@@ -1933,7 +1933,7 @@ private fun DiscoverResults(
                         Text(
                             text = product.storeName,
                             style = TextStyle(
-                                fontFamily = ManropeFontFamily,
+                                fontFamily = ManropeFontFamily(),
                                 fontSize = 13.sp,
                                 color = DscInk2
                             ),
@@ -1944,7 +1944,7 @@ private fun DiscoverResults(
                         Text(
                             text = dscMoney(product.price),
                             style = TextStyle(
-                                fontFamily = ManropeFontFamily,
+                                fontFamily = ManropeFontFamily(),
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 15.sp,
                                 color = ItaSuperPrimary

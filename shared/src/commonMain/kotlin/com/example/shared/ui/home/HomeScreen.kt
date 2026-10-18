@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.LocalShipping
 import androidx.compose.material.icons.outlined.Store
@@ -619,7 +620,7 @@ private fun HomeHeaderSection(
                 Text(
                     text = "ENTREGAR EM",
                     style = MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontWeight = FontWeight.Bold,
                         fontSize = 11.sp,
                         color = ItaSuperTextSecondary,
@@ -648,7 +649,7 @@ private fun HomeHeaderSection(
                         Text(
                             text = displayAddress.ifBlank { "Informe seu endereço" },
                             style = MaterialTheme.typography.titleMedium.copy(
-                                fontFamily = ManropeFontFamily,
+                                fontFamily = ManropeFontFamily(),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp,
                                 color = if (hasAddress) ItaSuperTextPrimary else ItaSuperPrimary
@@ -660,7 +661,7 @@ private fun HomeHeaderSection(
                             Text(
                                 text = activeCity,
                                 style = MaterialTheme.typography.bodySmall.copy(
-                                    fontFamily = ManropeFontFamily,
+                                    fontFamily = ManropeFontFamily(),
                                     fontSize = 12.sp,
                                     color = ItaSuperTextSecondary
                                 ),
@@ -757,7 +758,7 @@ private fun HomeSearchSection(
             Text(
                 text = placeholder,
                 style = MaterialTheme.typography.bodyLarge.copy(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.Medium,
                     fontSize = 15.sp,
                     color = Color(0xFF5F5F5F)
@@ -787,7 +788,7 @@ private fun HomeExplorationSection(
             Text(
                 text = "Explorar",
                 style = MaterialTheme.typography.titleLarge.copy(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 15.sp,
                     color = ItaSuperTextPrimary
@@ -874,7 +875,7 @@ private fun HomeExplorationCategoryItem(
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge.copy(
-                fontFamily = ManropeFontFamily,
+                fontFamily = ManropeFontFamily(),
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                 color = if (selected) ItaSuperPrimary else Color(0xFF262626),
                 fontSize = 12.sp
@@ -903,7 +904,7 @@ private fun HomeQuickFilterPill(label: String, selected: Boolean, onClick: () ->
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelLarge.copy(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
                     color = if (selected) ItaSuperPrimary else Color(0xFF262626),
                     fontSize = 13.sp
@@ -1248,7 +1249,7 @@ private fun HomeHighlightsBentoSection(
             Text(
                 text = "Destaques",
                 style = MaterialTheme.typography.titleMedium.copy(
-                    fontFamily = SoraFontFamily,
+                    fontFamily = SoraFontFamily(),
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp
                 )
@@ -1478,7 +1479,7 @@ private fun HomeDiscoverProductsSection(
                 Text(
                     text = "Descubra",
                     style = MaterialTheme.typography.titleMedium.copy(
-                        fontFamily = SoraFontFamily,
+                        fontFamily = SoraFontFamily(),
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp
                     )
@@ -1589,7 +1590,7 @@ private fun HomeDiscoverProductsSection(
                                     Text(
                                         text = product.name,
                                         style = MaterialTheme.typography.titleSmall.copy(
-                                            fontFamily = SoraFontFamily,
+                                            fontFamily = SoraFontFamily(),
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 13.sp,
                                             lineHeight = 16.sp
@@ -1622,7 +1623,7 @@ private fun HomeDiscoverProductsSection(
                                             Text(
                                                 text = formatPriceBR(product.price),
                                                 style = MaterialTheme.typography.labelSmall.copy(
-                                                    fontFamily = SoraFontFamily,
+                                                    fontFamily = SoraFontFamily(),
                                                     fontWeight = FontWeight.Bold,
                                                     color = Color.White,
                                                     fontSize = 11.sp
@@ -1899,7 +1900,7 @@ private fun StoreLogoThumbnail(
             ) {
                 Text(
                     text = initial,
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = if (circular) 18.sp else 24.sp,
                     lineHeight = if (circular) 18.sp else 23.sp,
@@ -1941,7 +1942,7 @@ private fun HomeFavoriteStoresSection(
                 Text(
                     text = "Suas lojas",
                     style = MaterialTheme.typography.titleMedium.copy(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 15.sp,
                         lineHeight = 18.sp,
@@ -1953,7 +1954,7 @@ private fun HomeFavoriteStoresSection(
             Text(
                 text = "compradas recentemente",
                 style = MaterialTheme.typography.bodyMedium.copy(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.Medium,
                     fontSize = 12.sp,
                     lineHeight = 16.sp,
@@ -1989,7 +1990,7 @@ private fun HomeFavoriteStoresSection(
                     Text(
                         text = store.name,
                         style = MaterialTheme.typography.titleSmall.copy(
-                            fontFamily = ManropeFontFamily,
+                            fontFamily = ManropeFontFamily(),
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 12.sp,
                             lineHeight = 16.sp,
@@ -2019,7 +2020,7 @@ private fun HomeStoresWithCouponsSection(
             Text(
                 text = "Lojas com Cupom",
                 style = MaterialTheme.typography.titleMedium.copy(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 15.sp,
                     lineHeight = 18.sp,
@@ -2031,7 +2032,7 @@ private fun HomeStoresWithCouponsSection(
         Text(
             text = "Descontos exclusivos pra você",
             style = MaterialTheme.typography.bodyMedium.copy(
-                fontFamily = ManropeFontFamily,
+                fontFamily = ManropeFontFamily(),
                 fontWeight = FontWeight.Medium,
                 fontSize = 12.sp,
                 lineHeight = 16.sp,
@@ -2189,7 +2190,7 @@ private fun CouponTicketCard(
                 if (logoFailed) {
                     Text(
                         text = initial,
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 18.sp,
                         color = ItaSuperPrimary
@@ -2200,7 +2201,7 @@ private fun CouponTicketCard(
             Text(
                 text = item.storeName,
                 style = MaterialTheme.typography.titleSmall.copy(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp,
                     color = Color(0xFF1F1F1F)
@@ -2212,7 +2213,7 @@ private fun CouponTicketCard(
             Text(
                 text = item.badgeText + " com " + item.couponCode,
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.Medium,
                     fontSize = 11.sp,
                     color = ItaSuperPrimary
@@ -2251,7 +2252,7 @@ private fun HomeDaypartSection(
                     Text(
                         text = daypart.titulo,
                         style = MaterialTheme.typography.titleMedium.copy(
-                            fontFamily = ManropeFontFamily,
+                            fontFamily = ManropeFontFamily(),
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 15.sp,
                             lineHeight = 18.sp,
@@ -2264,7 +2265,7 @@ private fun HomeDaypartSection(
                 Text(
                     text = daypart.subtitulo,
                     style = MaterialTheme.typography.bodyMedium.copy(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontWeight = FontWeight.Medium,
                         fontSize = 12.sp,
                         lineHeight = 16.sp,
@@ -2277,7 +2278,7 @@ private fun HomeDaypartSection(
             Text(
                 text = "Ver todas",
                 style = MaterialTheme.typography.labelLarge.copy(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp,
                     color = ItaSuperPrimary
@@ -2322,7 +2323,7 @@ private fun HomeDaypartSection(
                         Text(
                             text = store.name,
                             style = MaterialTheme.typography.bodyMedium.copy(
-                                fontFamily = ManropeFontFamily,
+                                fontFamily = ManropeFontFamily(),
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 11.sp,
                                 lineHeight = 14.sp,
@@ -2337,7 +2338,7 @@ private fun HomeDaypartSection(
                         Text(
                             text = daypartStoreDetail(store),
                             style = MaterialTheme.typography.bodySmall.copy(
-                                fontFamily = ManropeFontFamily,
+                                fontFamily = ManropeFontFamily(),
                                 fontWeight = FontWeight.Medium,
                                 fontSize = 10.sp,
                                 color = Color(0xFF737373)
@@ -2382,7 +2383,7 @@ private fun HomeAffordableProductsSection(
             Text(
                 text = "Preço acessível",
                 style = MaterialTheme.typography.titleMedium.copy(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 16.sp,
                     color = Color(0xFF1F1F1F)
@@ -2391,7 +2392,7 @@ private fun HomeAffordableProductsSection(
             Text(
                 text = "Ver mais",
                 style = MaterialTheme.typography.labelLarge.copy(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp,
                     color = ItaSuperPrimary
@@ -2450,7 +2451,7 @@ private fun HomeAffordableProductsSection(
                         Text(
                             text = product.name,
                             style = MaterialTheme.typography.bodyMedium.copy(
-                                fontFamily = ManropeFontFamily,
+                                fontFamily = ManropeFontFamily(),
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 11.sp,
                                 lineHeight = 14.sp,
@@ -2464,7 +2465,7 @@ private fun HomeAffordableProductsSection(
                         Text(
                             text = product.storeName,
                             style = MaterialTheme.typography.bodySmall.copy(
-                                fontFamily = ManropeFontFamily,
+                                fontFamily = ManropeFontFamily(),
                                 fontWeight = FontWeight.Medium,
                                 fontSize = 10.sp,
                                 color = Color(0xFF737373)
@@ -2476,7 +2477,7 @@ private fun HomeAffordableProductsSection(
                         Text(
                             text = formatPriceBR(product.price),
                             style = MaterialTheme.typography.titleSmall.copy(
-                                fontFamily = ManropeFontFamily,
+                                fontFamily = ManropeFontFamily(),
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 13.sp,
                                 color = ItaSuperPrimary
@@ -2507,7 +2508,7 @@ private fun HomeRepeatProductsSection(
                 Text(
                     text = "Peça de novo",
                     style = MaterialTheme.typography.titleMedium.copy(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 16.sp,
                         color = Color(0xFF1F1F1F)
@@ -2516,7 +2517,7 @@ private fun HomeRepeatProductsSection(
                 Text(
                     text = "produtos que você já pediu",
                     style = MaterialTheme.typography.bodySmall.copy(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontWeight = FontWeight.Medium,
                         fontSize = 11.sp,
                         color = Color(0xFF6D6D6D)
@@ -2526,7 +2527,7 @@ private fun HomeRepeatProductsSection(
             Text(
                 text = "Ver mais",
                 style = MaterialTheme.typography.labelLarge.copy(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp,
                     color = ItaSuperPrimary
@@ -2585,7 +2586,7 @@ private fun HomeRepeatProductsSection(
                         Text(
                             text = product.name,
                             style = MaterialTheme.typography.bodyMedium.copy(
-                                fontFamily = ManropeFontFamily,
+                                fontFamily = ManropeFontFamily(),
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 11.sp,
                                 lineHeight = 14.sp,
@@ -2599,7 +2600,7 @@ private fun HomeRepeatProductsSection(
                         Text(
                             text = product.storeName,
                             style = MaterialTheme.typography.bodySmall.copy(
-                                fontFamily = ManropeFontFamily,
+                                fontFamily = ManropeFontFamily(),
                                 fontWeight = FontWeight.Medium,
                                 fontSize = 10.sp,
                                 color = Color(0xFF737373)
@@ -2611,7 +2612,7 @@ private fun HomeRepeatProductsSection(
                         Text(
                             text = formatPriceBR(product.price),
                             style = MaterialTheme.typography.titleSmall.copy(
-                                fontFamily = ManropeFontFamily,
+                                fontFamily = ManropeFontFamily(),
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 13.sp,
                                 color = ItaSuperPrimary
@@ -2661,7 +2662,7 @@ private fun HomeStoreListSection(
             Text(
                 text = if (activeCity.isNotBlank()) "Lojas em $activeCity" else "Lojas",
                 style = MaterialTheme.typography.titleLarge.copy(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 15.sp,
                     color = ItaSuperTextPrimary
@@ -2674,7 +2675,7 @@ private fun HomeStoreListSection(
                 Text(
                     text = if (regionalStoreCount == 1) "1 loja" else "$regionalStoreCount lojas",
                     style = MaterialTheme.typography.bodyMedium.copy(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         color = ItaSuperTextSecondary,
                         fontWeight = FontWeight.Medium,
                         fontSize = 10.sp
@@ -2870,7 +2871,7 @@ private fun HomeStoreListSection(
                     Text(
                         text = "Ver todas as ${stores.size} lojas",
                         style = MaterialTheme.typography.labelLarge.copy(
-                            fontFamily = ManropeFontFamily,
+                            fontFamily = ManropeFontFamily(),
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
                             color = ItaSuperPrimary
@@ -2939,7 +2940,7 @@ private fun HomeStoreSortControl(
                 Text(
                     text = "Ordenar",
                     style = MaterialTheme.typography.labelLarge.copy(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 12.sp,
                         color = ItaSuperTextPrimary
@@ -3074,7 +3075,7 @@ private fun StoreCardItem(
                     Text(
                         text = store.name,
                         style = MaterialTheme.typography.titleMedium.copy(
-                            fontFamily = ManropeFontFamily,
+                            fontFamily = ManropeFontFamily(),
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 15.sp,
                             color = Color(0xFF1F1F1F)
@@ -3089,7 +3090,7 @@ private fun StoreCardItem(
                 Text(
                     text = categoryLabel,
                     style = MaterialTheme.typography.bodyMedium.copy(
-                        fontFamily = ManropeFontFamily,
+                        fontFamily = ManropeFontFamily(),
                         fontWeight = FontWeight.Medium,
                         fontSize = 13.sp,
                         color = Color(0xFF686868)
@@ -3102,7 +3103,7 @@ private fun StoreCardItem(
                     Text(
                         text = deliveryDetails,
                         style = MaterialTheme.typography.bodyMedium.copy(
-                            fontFamily = ManropeFontFamily,
+                            fontFamily = ManropeFontFamily(),
                             fontSize = 13.sp,
                             color = if (store.isFreeDelivery) ItaSuperSuccess else Color(0xFF686868),
                             fontWeight = if (store.isFreeDelivery) FontWeight.SemiBold else FontWeight.Medium
@@ -3118,7 +3119,7 @@ private fun StoreCardItem(
                             "Entrega indisponível no momento"
                         },
                         style = MaterialTheme.typography.labelMedium.copy(
-                            fontFamily = ManropeFontFamily,
+                            fontFamily = ManropeFontFamily(),
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 11.sp,
                             color = Color(0xFFC13550)
@@ -3179,7 +3180,7 @@ private fun StoreAvailabilityBadge(isOpen: Boolean) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelMedium.copy(
-                    fontFamily = ManropeFontFamily,
+                    fontFamily = ManropeFontFamily(),
                     fontWeight = FontWeight.SemiBold,
                     color = foreground,
                     fontSize = 11.sp

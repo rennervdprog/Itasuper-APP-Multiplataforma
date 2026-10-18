@@ -30,7 +30,7 @@ fun ItaSuperTheme(
 ) {
     MaterialTheme(
         colorScheme = LightColorScheme,
-        typography = Typography,
+        typography = ItaSuperTypography(),
         shapes = Shapes,
         content = content
     )
