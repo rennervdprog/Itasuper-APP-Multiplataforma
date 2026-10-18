@@ -5,12 +5,12 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
-import com.example.shared.generated.resources.Res
-import com.example.shared.generated.resources.manrope_bold
-import com.example.shared.generated.resources.manrope_extrabold
-import com.example.shared.generated.resources.manrope_medium
-import com.example.shared.generated.resources.manrope_regular
-import com.example.shared.generated.resources.manrope_semibold
+import shared.generated.resources.Res
+import shared.generated.resources.manrope_bold
+import shared.generated.resources.manrope_extrabold
+import shared.generated.resources.manrope_medium
+import shared.generated.resources.manrope_regular
+import shared.generated.resources.manrope_semibold
 import org.jetbrains.compose.resources.Font
 
 // Manrope embarcada via composeResources — mesma métrica visual do app Android
