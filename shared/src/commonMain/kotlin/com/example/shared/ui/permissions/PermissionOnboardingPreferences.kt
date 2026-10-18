@@ -4,7 +4,8 @@ import com.example.shared.platform.SecureStorage
 
 /**
  * Migração de `LocationOnboardingPreferences` e `NotificationOnboardingPreferences`
- * do app Android (`ui/permissions/*Onboarding.kt`).
+ * do app Android (arquivos LocationPermissionOnboarding.kt e
+ * NotificationPermissionOnboarding.kt do pacote ui.permissions).
  *
  * Adaptação KMP: o original persistia em `SharedPreferences` via `Context`;
  * aqui a persistência é o [SecureStorage] (multiplatform-settings: SharedPreferences
