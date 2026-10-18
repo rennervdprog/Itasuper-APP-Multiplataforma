@@ -135,15 +135,10 @@ fun StoreInfoScreen(
                                 .clickable(onClick = onBackClick)
                                 .padding(8.dp)
                         )
-                        Text(
-                            text = store.name.uppercase(),
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF1A1A1A),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
-                        )
+                        // Nome removido da top bar a pedido do Renner (18/10/2026):
+                        // o nome em maiusculas aqui duplicava o cabecalho grande
+                        // com nome + categoria + logo logo abaixo.
+                        Spacer(modifier = Modifier.weight(1f))
                         Icon(
                             imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                             contentDescription = "Favoritar",
