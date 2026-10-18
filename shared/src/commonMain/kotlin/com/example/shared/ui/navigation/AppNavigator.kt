@@ -43,6 +43,10 @@ class AppNavigator {
     var storeInfoId by mutableStateOf<String?>(null)
         private set
 
+    /** Id do pedido aberto no rastreio ("Acompanhar entrega"); null = nenhum aberto. */
+    var trackingOrderId by mutableStateOf<String?>(null)
+        private set
+
     fun navigateTo(screen: AppScreen) {
         currentScreen = screen
     }
@@ -61,6 +65,14 @@ class AppNavigator {
 
     fun closeStoreInfo() {
         storeInfoId = null
+    }
+
+    fun openTracking(orderId: String) {
+        trackingOrderId = orderId
+    }
+
+    fun closeTracking() {
+        trackingOrderId = null
     }
 }
 
