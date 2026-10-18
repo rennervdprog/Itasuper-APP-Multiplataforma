@@ -82,10 +82,14 @@ import coil3.compose.AsyncImage
 import com.example.shared.generated.resources.Res
 import com.example.shared.generated.resources.ic_home_placeholder_smile
 import org.jetbrains.compose.resources.painterResource
+import com.example.shared.model.AddonItem
 import com.example.shared.model.MenuSection
+import com.example.shared.model.PizzaAddonGroup
+import com.example.shared.model.PizzaBorder
 import com.example.shared.model.Product
 import com.example.shared.model.SelectedAddonItem
 import com.example.shared.model.Store
+import com.example.shared.network.SupabaseApi
 import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ItaSuperSecondary
 import com.example.shared.theme.ItaSuperTextPrimary
@@ -568,21 +572,20 @@ fun StoreDetailScreen(
         }
     }
 
-    // Montador simplificado (pastel/pizza) — versão funcional com dados mock.
-    // TODO(fase-rede): portar os wizards completos do original quando houver
-    // tamanhos/sabores reais da loja.
+    // Montador de pizza/pastel — fluxo completo igual ao da web.
     showBuilder?.let { type ->
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(
             onDismissRequest = { showBuilder = null },
             sheetState = sheetState
         ) {
-            SimpleBuilderSheetContent(
+            PizzaBuilderSheetContent(
                 type = type,
                 store = store,
                 products = products,
-                onRequestAdd = { product, quantity, notes ->
-                    requestAdd(product, quantity = quantity, notes = notes)
+                menuSections = menuSections,
+                onRequestAdd = { product, quantity, notes, addons ->
+                    requestAdd(product, quantity = quantity, notes = notes, addons = addons)
                 },
                 onClose = { showBuilder = null }
             )
@@ -1512,179 +1515,1119 @@ private fun ProductDetailSheetContent(
 }
 
 /**
- * Montador simplificado de pastel/pizza — fluxo funcional com dados mock:
- * escolhe os sabores, quantidade e observações, e adiciona na sacola.
+ * Montador de pizza/pastel — fluxo completo igual ao da web (PizzaHalfHalfModal / PastelBuilderModal):
+ *  0. Escolhe a quantidade de sabores (2/3/4) — pulado se a loja só permite 2
+ *  1. Escolhe o tamanho (se a loja tiver tamanhos cadastrados)
+ *  2..N. Escolhe cada sabor (1º, 2º, 3º, 4º), agrupado por seção do cardápio
+ *  N+1. Adicionais (pizza) / Complementos (pastel) — se a loja tiver
+ *  N+2. Borda (pizza) — se a loja tiver
+ *  Final. Observações + quantidade + "Adicionar"
+ *
+ * Preço: "maior" (maior sabor) ou "media" (média dos sabores), conforme a loja.
  */
 @Composable
-private fun SimpleBuilderSheetContent(
+private fun PizzaBuilderSheetContent(
     type: String,
     store: Store,
     products: List<Product>,
-    onRequestAdd: (product: Product, quantity: Int, notes: String) -> Unit,
+    menuSections: List<MenuSection>,
+    onRequestAdd: (product: Product, quantity: Int, notes: String, addons: List<SelectedAddonItem>) -> Unit,
     onClose: () -> Unit
 ) {
-    val flavors = remember(products, type) {
-        if (type == "pastel") {
-            products.filter { it.isPastelFlavor && it.isAvailable }
-        } else {
-            products.filter { it.pizzaCategoryId.isNotBlank() && it.isAvailable }
-        }
-    }.ifEmpty { products.filter { it.isAvailable }.take(6) }
+    val isPastel = type == "pastel"
+    val settings = store.settings
+    val maxFlavorsSetting = (if (isPastel) settings.pastelMaxFlavors else settings.pizzaMaxFlavors).coerceIn(2, 4)
+    val priceMode = if (isPastel) settings.pastelPriceMode else settings.pizzaPriceMode
+    val singleSize = if (isPastel) settings.pastelSingleSize else settings.pizzaSingleSize
+    val maxComplements = settings.pastelMaxComplements.coerceIn(1, 20)
 
-    var selectedIds by remember { mutableStateOf(setOf<String>()) }
+    val title = if (isPastel) "Monte seu Pastel" else "Monte sua Pizza"
+    val fractionLabels = mapOf(2 to "½", 3 to "⅓", 4 to "¼")
+
+    var flavorCount by remember { mutableStateOf(2) }
+    var step by remember { mutableStateOf(if (maxFlavorsSetting == 2) 1 else 0) }
+    var productIds by remember { mutableStateOf<List<String?>>(listOf(null, null)) }
+    var selectedBorderId by remember { mutableStateOf<String?>(null) }
+    var selectedComplementIds by remember { mutableStateOf(setOf<String>()) }
+    var selectedAddonIds by remember { mutableStateOf(setOf<String>()) }
+    var observations by remember { mutableStateOf("") }
     var quantity by remember { mutableStateOf(1) }
-    var notes by remember { mutableStateOf("") }
-    val scrollState = rememberScrollState()
+    var selectedSize by remember { mutableStateOf<String?>(null) }
 
-    val title = if (type == "pastel") "Monte seu pastel" else "Monte sua pizza"
-    val basePrice = flavors.filter { it.id in selectedIds }.maxOfOrNull { it.price } ?: 0.0
+    // Bordas (pizza) / complementos (pastel) — busca na API, vazio com mocks.
+    var borders by remember { mutableStateOf<List<PizzaBorder>>(emptyList()) }
+    LaunchedEffect(store.id, isPastel) {
+        borders = try {
+            if (isPastel) SupabaseApi.fetchPastelBorders(store.id)
+            else SupabaseApi.fetchPizzaBorders(store.id)
+        } catch (_: Exception) {
+            emptyList()
+        }
+        // Auto-seleciona "Tradicional" ou a gratuita (igual à web).
+        if (!isPastel && borders.isNotEmpty() && selectedBorderId == null) {
+            val tradicional = borders.firstOrNull {
+                it.name.lowercase().contains("tradicional") || it.price == 0.0
+            } ?: borders.firstOrNull()
+            tradicional?.let { selectedBorderId = it.id }
+        }
+    }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .verticalScroll(scrollState)
-            .padding(20.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
-                color = ItaSuperTextPrimary
-            )
-            IconButton(onClick = onClose) {
-                Icon(imageVector = Icons.Filled.Close, contentDescription = "Fechar", tint = ItaSuperTextPrimary)
+    // Filtra sabores (igual à web: exclui bebidas; pastel usa isPastelFlavor quando curado).
+    val beverageKeywords = listOf("bebida", "drink", "suco", "refrigerante", "água", "cerveja", "energético")
+    val beverageSectionIds = remember(menuSections) {
+        menuSections.filter { s -> beverageKeywords.any { kw -> s.name.lowercase().contains(kw) } }
+            .map { it.id }.toSet()
+    }
+    val flavorProducts = remember(products, isPastel, beverageSectionIds) {
+        val hasCuratedPastel = products.any { it.isPastelFlavor }
+        products.filter { p ->
+            if (p.isBeverage) return@filter false
+            if (p.sectionId != null && beverageSectionIds.contains(p.sectionId)) return@filter false
+            if (isPastel && hasCuratedPastel) return@filter p.isPastelFlavor
+            if (!isPastel && p.pizzaCategoryId.isBlank()) {
+                // Legado: sem pizzaCategoryId, aceita se não for bebida (compatibilidade).
+                // Mas evita produtos que claramente não são pizza quando há categorizados.
+                val anyCategorized = products.any { it.pizzaCategoryId.isNotBlank() }
+                if (anyCategorized) return@filter false
+            }
+            true
+        }
+    }
+
+    // Tamanhos: catálogo profissional ou união dos sizes legados.
+    val catalogSizes = remember(settings) {
+        settings.pizzaSizesCatalog.filter { it.active && it.maxFlavors >= 2 }
+    }
+    val catalogActive = !singleSize && !isPastel && catalogSizes.isNotEmpty()
+    val legacySizes: List<String> = remember(flavorProducts) {
+        val order = mutableListOf<String>()
+        val seen = mutableSetOf<String>()
+        for (p in flavorProducts) {
+            for (s in p.legacyPizzaSizes) {
+                if (s.name.isNotBlank() && s.price > 0 && seen.add(s.name)) order.add(s.name)
             }
         }
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = if (type == "pastel") "Escolha os sabores do seu pastel" else "Escolha os sabores da sua pizza",
-            style = MaterialTheme.typography.bodyMedium,
-            color = Color.Gray
-        )
-        Spacer(modifier = Modifier.height(16.dp))
+        order
+    }
+    val availableSizes: List<String> = if (catalogActive) catalogSizes.map { it.name } else legacySizes
+    val hasSizes = !singleSize && availableSizes.isNotEmpty()
 
-        flavors.forEach { product ->
-            val selected = product.id in selectedIds
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-                    .clickable {
-                        selectedIds = if (selected) selectedIds - product.id else selectedIds + product.id
-                    },
-                shape = RoundedCornerShape(12.dp),
-                color = if (selected) Color(0xFFFFF0E6) else Color(0xFFFAFAFA),
-                border = BorderStroke(
-                    1.dp,
-                    if (selected) ItaSuperPrimary else Color(0xFFE5E5E5)
+    // Auto-seleciona o primeiro tamanho.
+    LaunchedEffect(hasSizes, availableSizes) {
+        if (hasSizes && selectedSize == null && availableSizes.isNotEmpty()) {
+            selectedSize = availableSizes[0]
+        }
+    }
+
+    // Máximo de sabores efetivo (respeita o limite do tamanho no catálogo).
+    val sizeMaxFlavors: Int = remember(catalogActive, selectedSize, maxFlavorsSetting) {
+        if (!catalogActive || selectedSize == null) maxFlavorsSetting
+        else {
+            val sizeItem = catalogSizes.firstOrNull { it.name == selectedSize }
+            minOf(sizeItem?.maxFlavors ?: 4, maxFlavorsSetting).coerceIn(2, 4)
+        }
+    }
+    // Clampa flavorCount se o tamanho não suportar.
+    LaunchedEffect(sizeMaxFlavors) {
+        if (flavorCount > sizeMaxFlavors) {
+            flavorCount = sizeMaxFlavors
+            productIds = List(sizeMaxFlavors) { null }
+        }
+    }
+
+    // Adicionais ligados aos sabores escolhidos (só pizza).
+    val chosenFlavorIdsKey = productIds.filterNotNull().joinToString(",")
+    var addonGroups by remember { mutableStateOf<List<PizzaAddonGroup>>(emptyList()) }
+    LaunchedEffect(chosenFlavorIdsKey, isPastel) {
+        addonGroups = try {
+            if (!isPastel && chosenFlavorIdsKey.isNotBlank()) {
+                SupabaseApi.fetchFlavorAddonGroups(productIds.filterNotNull())
+            } else emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    val hasBorders = !isPastel && borders.isNotEmpty()
+    val hasAddons = !isPastel && addonGroups.isNotEmpty()
+    val hasComplements = isPastel && borders.isNotEmpty()
+
+    val totalSteps = flavorCount + (if (hasAddons) 1 else 0) + (if (hasBorders) 1 else 0) +
+        (if (hasComplements) 1 else 0)
+    val addonStep = if (hasAddons) flavorCount + 1 else -1
+    val borderStep = if (hasBorders) flavorCount + (if (hasAddons) 1 else 0) + 1 else -1
+    val complementStep = if (hasComplements) flavorCount + 1 else -1
+    val lastStep = totalSteps
+
+    // Preço de um sabor no tamanho selecionado (override → matriz → legado → base).
+    fun priceForFlavor(p: Product): Double {
+        if (catalogActive && selectedSize != null) {
+            val sizeItem = catalogSizes.firstOrNull { it.name == selectedSize }
+            if (sizeItem != null) {
+                p.pizzaSizeOverrides[sizeItem.id]?.takeIf { it > 0 }?.let { return it }
+                // Matriz: procura categoria do sabor (simplificado — usa pizzaCategoryId como chave).
+                // A matriz completa usa categoryId; aqui usamos o override ou legado.
+                val legacy = p.legacyPizzaSizes.firstOrNull { it.name == selectedSize && it.price > 0 }
+                if (legacy != null) return legacy.price
+            }
+        } else if (selectedSize != null) {
+            val match = p.legacyPizzaSizes.firstOrNull { it.name == selectedSize && it.price > 0 }
+            if (match != null) return match.price
+        }
+        return p.price
+    }
+
+    val selectedFlavors = productIds.map { id -> id?.let { fid -> flavorProducts.firstOrNull { it.id == fid } } }
+    val allChosen = selectedFlavors.all { it != null } && selectedFlavors.size == flavorCount
+    val selectedBorder = borders.firstOrNull { it.id == selectedBorderId }
+
+    fun calcBasePrice(): Double {
+        if (!allChosen) return 0.0
+        val prices = selectedFlavors.map { priceForFlavor(it!!) }
+        return if (priceMode == "media") prices.sum() / prices.size else (prices.maxOrNull() ?: 0.0)
+    }
+
+    val basePrice = calcBasePrice()
+    val borderPrice = selectedBorder?.price ?: 0.0
+    val addonItemsById = remember(addonGroups) {
+        addonGroups.flatMap { it.items }.associateBy { it.id }
+    }
+    val selectedAddonsList = selectedAddonIds.mapNotNull { addonItemsById[it] }
+    val addonsTotal = selectedAddonsList.sumOf { it.price }
+    val selectedComplements = borders.filter { selectedComplementIds.contains(it.id) }
+    val complementsTotal = selectedComplements.sumOf { it.price }
+    val unitPrice = basePrice + borderPrice + addonsTotal + complementsTotal
+    val lineTotal = unitPrice * quantity
+
+    val isFlavorStep = step in 1..flavorCount
+    val currentFlavorIdx = if (isFlavorStep) step - 1 else -1
+
+    fun ordinal(n: Int) = listOf("1º", "2º", "3º", "4º").getOrElse(n - 1) { "${n}º" }
+    fun stepLabel(s: Int): String = when {
+        s == 0 -> "Quantos sabores?"
+        s == addonStep -> "Adicionais (opcional)"
+        s == complementStep -> "Complementos (até $maxComplements, opcional)"
+        s == borderStep -> "Escolha a borda"
+        else -> "Escolha o ${ordinal(s)} sabor"
+    }
+
+    fun addonGroupsValid(): Boolean {
+        for (g in addonGroups) {
+            val count = g.items.count { selectedAddonIds.contains(it.id) }
+            if (count < g.minSelect) return false
+        }
+        return true
+    }
+
+    fun canAdvance(): Boolean = when {
+        step == 0 -> true
+        isFlavorStep -> productIds[currentFlavorIdx] != null
+        step == addonStep -> addonGroupsValid()
+        step == complementStep -> true
+        step == borderStep -> !hasBorders || selectedBorderId != null
+        else -> false
+    }
+
+    fun handleNext() {
+        when {
+            step == 0 -> step = 1
+            isFlavorStep && productIds[currentFlavorIdx] != null -> step = step + 1
+            step == addonStep && addonGroupsValid() -> step = step + 1
+            step == complementStep -> step = step + 1
+        }
+    }
+
+    fun handleBack() {
+        when {
+            step == 0 -> onClose()
+            step == 1 -> if (maxFlavorsSetting == 2) onClose() else step = 0
+            isFlavorStep -> {
+                productIds = productIds.toMutableList().also { it[currentFlavorIdx] = null }
+                step = step - 1
+            }
+            step == addonStep -> {
+                selectedAddonIds = emptySet()
+                step = flavorCount
+            }
+            step == complementStep -> {
+                selectedComplementIds = emptySet()
+                step = flavorCount
+            }
+            step == borderStep -> {
+                selectedBorderId = null
+                step = if (hasAddons) addonStep else flavorCount
+            }
+        }
+    }
+
+    fun setCurrentFlavor(id: String) {
+        productIds = productIds.toMutableList().also { it[currentFlavorIdx] = id }
+    }
+
+    fun handleFlavorCountChange(n: Int) {
+        flavorCount = n
+        productIds = List(n) { null }
+        selectedBorderId = null
+        selectedAddonIds = emptySet()
+        selectedComplementIds = emptySet()
+    }
+
+    fun toggleAddon(group: PizzaAddonGroup, itemId: String) {
+        val current = selectedAddonIds.toMutableSet()
+        if (current.contains(itemId)) {
+            current.remove(itemId)
+        } else {
+            val inGroup = group.items.count { current.contains(it.id) }
+            if (inGroup < group.maxSelect) current.add(itemId)
+        }
+        selectedAddonIds = current
+    }
+
+    fun toggleComplement(itemId: String) {
+        val current = selectedComplementIds.toMutableSet()
+        if (current.contains(itemId)) current.remove(itemId)
+        else if (current.size < maxComplements) current.add(itemId)
+        selectedComplementIds = current
+    }
+
+    val isFinalStep = step >= 1 && step == lastStep
+
+    fun handleAdd() {
+        if (!allChosen) return
+        val flavors = selectedFlavors.filterNotNull()
+        val frac = fractionLabels[flavorCount] ?: ""
+        val titleName = if (isPastel) {
+            "Pastel $flavorCount Sabores"
+        } else if (flavorCount == 2) {
+            "Pizza Meio a Meio"
+        } else {
+            "Pizza $flavorCount Sabores"
+        }
+        val name = "$titleName: ${flavors.joinToString(" / ") { it.name }}"
+        val displayName = if (selectedSize != null) "$name ($selectedSize)" else name
+
+        val addons = mutableListOf<SelectedAddonItem>()
+        // Sabores como addons informativos (fração + nome), igual à web.
+        flavors.forEach { f ->
+            addons.add(
+                SelectedAddonItem(
+                    itemId = "flavor-${f.id}",
+                    itemName = "$frac ${f.name}",
+                    itemPrice = 0.0,
+                    groupId = "flavors",
+                    groupName = "Sabores"
                 )
-            ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+            )
+        }
+        if (selectedSize != null) {
+            addons.add(
+                0,
+                SelectedAddonItem(
+                    itemId = "size",
+                    itemName = "Tamanho: $selectedSize",
+                    itemPrice = 0.0,
+                    groupId = "size",
+                    groupName = "Tamanho"
+                )
+            )
+        }
+        if (selectedBorder != null) {
+            addons.add(
+                SelectedAddonItem(
+                    itemId = selectedBorder.id,
+                    itemName = "Borda: ${selectedBorder.name}",
+                    itemPrice = borderPrice,
+                    groupId = "border",
+                    groupName = "Borda"
+                )
+            )
+        }
+        for (a in selectedAddonsList) {
+            addons.add(
+                SelectedAddonItem(
+                    itemId = a.id,
+                    itemName = a.name,
+                    itemPrice = a.price,
+                    groupId = a.groupId,
+                    groupName = "Adicionais"
+                )
+            )
+        }
+        for (c in selectedComplements) {
+            addons.add(
+                SelectedAddonItem(
+                    itemId = c.id,
+                    itemName = "Complemento: ${c.name}",
+                    itemPrice = c.price,
+                    groupId = "complements",
+                    groupName = "Complementos"
+                )
+            )
+        }
+
+        val builtProduct = flavors[0].copy(
+            price = unitPrice,
+            name = displayName
+        )
+        onRequestAdd(builtProduct, quantity, observations, addons)
+        onClose()
+    }
+
+    // Agrupa sabores por seção.
+    val groupedFlavors = remember(flavorProducts, menuSections) {
+        if (menuSections.isEmpty()) return@remember listOf(null to flavorProducts)
+        val bySection = flavorProducts.groupBy { it.sectionId }
+        val result = mutableListOf<Pair<MenuSection?, List<Product>>>()
+        for (sec in menuSections) {
+            val items = bySection[sec.id]
+            if (!items.isNullOrEmpty()) result.add(sec to items)
+        }
+        val unsectioned = bySection[null].orEmpty()
+        if (unsectioned.isNotEmpty()) result.add(null to unsectioned)
+        result
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // Top bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = { handleBack() }) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Voltar",
+                    tint = ItaSuperTextPrimary
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
+                    color = ItaSuperTextPrimary
+                )
+                Text(
+                    text = store.name,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+            }
+            IconButton(onClick = onClose) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "Fechar",
+                    tint = ItaSuperTextPrimary
+                )
+            }
+        }
+        HorizontalDivider(color = Color(0xFFEEEEEE))
+
+        // Progresso + rótulo da etapa
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            if (step > 0) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (s in 1..totalSteps) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(if (s <= step) ItaSuperPrimary else Color(0xFFE0E0E0))
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFFFFF0E6),
+                    modifier = Modifier.size(40.dp)
                 ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = if (selected) ItaSuperPrimary else Color(0xFFE0E0E0),
-                        modifier = Modifier.size(22.dp)
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (isPastel) Icons.Filled.Restaurant else Icons.Filled.LocalPizza,
+                            contentDescription = null,
+                            tint = ItaSuperPrimary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = if (step == 0) "Comece por aqui" else "Etapa $step de $totalSteps",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                        color = ItaSuperTextPrimary
+                    )
+                    Text(
+                        text = stepLabel(step),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                }
+            }
+
+            // Resumo da seleção
+            if ((selectedFlavors.any { it != null } || selectedBorder != null) && step > 0) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFF5F5F5),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = buildString {
+                                append(selectedFlavors.filterNotNull().joinToString(" + ") {
+                                    "${fractionLabels[flavorCount] ?: ""} ${it.name}"
+                                })
+                                if (selectedBorder != null) append(" • ${selectedBorder.name}")
+                                if (selectedComplements.isNotEmpty()) {
+                                    append(" • " + selectedComplements.joinToString(", ") { it.name })
+                                }
+                            },
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                            color = ItaSuperTextPrimary
+                        )
+                        if (allChosen) {
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = buildString {
+                                    append(if (isPastel) "Pastel " else "Pizza ")
+                                    append(formatBRL(basePrice))
+                                    if (borderPrice > 0) append(" + Borda ${formatBRL(borderPrice)}")
+                                    if (addonsTotal > 0) append(" + Adic. ${formatBRL(addonsTotal)}")
+                                    if (complementsTotal > 0) append(" + Compl. ${formatBRL(complementsTotal)}")
+                                    append(" = ${formatBRL(unitPrice)}")
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.Gray
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Conteúdo rolável
+        Column(
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+        ) {
+            // Etapa 0: quantidade de sabores
+            if (step == 0) {
+                if (catalogActive && availableSizes.size > 1) {
+                    Text(
+                        text = "Escolha o tamanho",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                        color = ItaSuperTextPrimary,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        if (selected) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Filled.Check,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(14.dp)
+                        for (sz in catalogSizes) {
+                            val isSel = selectedSize == sz.name
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { selectedSize = sz.name },
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSel) Color(0xFFFFF0E6) else Color(0xFFFAFAFA),
+                                border = BorderStroke(1.dp, if (isSel) ItaSuperPrimary else Color(0xFFE5E5E5))
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text(
+                                        text = sz.name,
+                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                        color = if (isSel) ItaSuperPrimary else ItaSuperTextPrimary
+                                    )
+                                    Text(
+                                        text = buildString {
+                                            if (sz.description.isNotBlank()) append(sz.description + " · ")
+                                            append("até ${sz.maxFlavors} sabores")
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+                Text(
+                    text = "Escolha quantos sabores diferentes você quer:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    for (n in listOf(2, 3, 4).filter { it <= sizeMaxFlavors }) {
+                        val isSel = flavorCount == n
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { handleFlavorCountChange(n) },
+                            shape = RoundedCornerShape(16.dp),
+                            color = if (isSel) Color(0xFFFFF0E6) else Color.White,
+                            border = BorderStroke(
+                                2.dp,
+                                if (isSel) ItaSuperPrimary else Color(0xFFEEEEEE)
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(vertical = 20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "$n",
+                                    style = MaterialTheme.typography.headlineMedium.copy(
+                                        fontWeight = FontWeight.Black
+                                    ),
+                                    color = ItaSuperTextPrimary
+                                )
+                                Text(
+                                    text = if (n == 2) "Meio a meio" else "$n sabores",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    color = Color.Gray
+                                )
+                                Text(
+                                    text = "${fractionLabels[n]} cada",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.Gray
                                 )
                             }
                         }
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // Etapas de sabor
+            if (isFlavorStep) {
+                if (!catalogActive && hasSizes && step == 1) {
                     Text(
-                        text = product.name,
-                        style = MaterialTheme.typography.bodyLarge.copy(
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
-                        ),
-                        color = ItaSuperTextPrimary,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        text = formatBRL(product.price),
+                        text = "Escolha o tamanho",
                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                        color = ItaSuperPrimary
+                        color = ItaSuperTextPrimary,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        for (sizeName in availableSizes) {
+                            val isSel = selectedSize == sizeName
+                            Surface(
+                                modifier = Modifier.clickable { selectedSize = sizeName },
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSel) Color(0xFFFFF0E6) else Color(0xFFFAFAFA),
+                                border = BorderStroke(2.dp, if (isSel) ItaSuperPrimary else Color.Transparent)
+                            ) {
+                                Text(
+                                    text = sizeName,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    color = if (isSel) ItaSuperPrimary else Color.Gray,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text = "O preço de cada sabor pode variar conforme o tamanho.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
                     )
                 }
-            }
-        }
 
-        Spacer(modifier = Modifier.height(16.dp))
-        OutlinedTextField(
-            value = notes,
-            onValueChange = { notes = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Observações") },
-            placeholder = { Text("Ex: borda recheada...") },
-            maxLines = 3,
-            shape = RoundedCornerShape(12.dp)
-        )
-        Spacer(modifier = Modifier.height(20.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { if (quantity > 1) quantity-- }, enabled = quantity > 1) {
-                    Icon(imageVector = Icons.Filled.Remove, contentDescription = "Diminuir")
-                }
-                Text(
-                    text = "$quantity",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    modifier = Modifier.padding(horizontal = 12.dp)
-                )
-                IconButton(onClick = { quantity++ }) {
-                    Icon(imageVector = Icons.Filled.Add, contentDescription = "Aumentar")
-                }
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Button(
-                onClick = {
-                    val first = flavors.firstOrNull { it.id in selectedIds } ?: flavors.firstOrNull()
-                    if (first != null) {
-                        val flavorNames = flavors.filter { it.id in selectedIds }.joinToString(" + ") { it.name }
-                        val desc = if (flavorNames.isNotBlank()) "$title: $flavorNames" else title
-                        onRequestAdd(
-                            first.copy(price = basePrice, name = desc),
-                            quantity,
-                            notes
+                val chosenElsewhere = productIds
+                    .mapIndexedNotNull { i, id -> if (i != currentFlavorIdx) id else null }
+                    .toSet()
+                for ((section, items) in groupedFlavors) {
+                    val visible = items.filter { it.id !in chosenElsewhere }
+                    if (visible.isEmpty()) continue
+                    if (section != null) {
+                        Text(
+                            text = section.name.uppercase(),
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = Color.Gray,
+                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
                         )
                     }
-                    onClose()
-                },
-                enabled = selectedIds.isNotEmpty(),
-                modifier = Modifier
-                    .weight(1f)
-                    .height(50.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = ItaSuperPrimary)
-            ) {
+                    for (product in visible) {
+                        val isSelected = product.id == productIds[currentFlavorIdx]
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clickable { setCurrentFlavor(product.id) },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSelected) Color(0xFFFFF0E6) else Color.White,
+                            border = BorderStroke(
+                                2.dp,
+                                if (isSelected) ItaSuperPrimary else Color(0xFFEEEEEE)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (product.imageUrl.isNotBlank()) {
+                                    AsyncImage(
+                                        model = product.imageUrl,
+                                        contentDescription = product.name,
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(RoundedCornerShape(8.dp)),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = if (isSelected) ItaSuperPrimary else Color(0xFFE0E0E0),
+                                        modifier = Modifier.size(22.dp)
+                                    ) {
+                                        if (isSelected) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Check,
+                                                    contentDescription = null,
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = product.name,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                        ),
+                                        color = ItaSuperTextPrimary
+                                    )
+                                    if (product.description.isNotBlank()) {
+                                        Text(
+                                            text = product.description,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.Gray,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = formatBRL(priceForFlavor(product)),
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.Black
+                                    ),
+                                    color = ItaSuperPrimary
+                                )
+                            }
+                        }
+                    }
+                }
+                if (flavorProducts.isEmpty()) {
+                    Text(
+                        text = "Nenhum sabor cadastrado ainda.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.Gray,
+                        modifier = Modifier.padding(vertical = 32.dp)
+                    )
+                }
+                // Observações na última etapa de sabor (quando não há adicionais/borda).
+                if (step == flavorCount && !hasAddons && !hasBorders && !hasComplements &&
+                    productIds[currentFlavorIdx] != null
+                ) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    ObservationsField(observations, { observations = it })
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // Etapa de adicionais (pizza)
+            if (step == addonStep && hasAddons) {
+                for (group in addonGroups) {
+                    val countInGroup = group.items.count { selectedAddonIds.contains(it.id) }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp, bottom = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = buildString {
+                                append(group.name)
+                                if (group.minSelect > 0) append(" (mín. ${group.minSelect})")
+                            },
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                            color = ItaSuperTextPrimary
+                        )
+                        if (group.maxSelect < 99) {
+                            Text(
+                                text = "$countInGroup/${group.maxSelect}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.Gray
+                            )
+                        }
+                    }
+                    for (item in group.items) {
+                        val isSel = selectedAddonIds.contains(item.id)
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clickable { toggleAddon(group, item.id) },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSel) Color(0xFFFFF0E6) else Color.White,
+                            border = BorderStroke(
+                                2.dp,
+                                if (isSel) ItaSuperPrimary else Color(0xFFEEEEEE)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (isSel) ItaSuperPrimary else Color.Transparent,
+                                    border = BorderStroke(
+                                        2.dp,
+                                        if (isSel) ItaSuperPrimary else Color(0xFFBDBDBD)
+                                    ),
+                                    modifier = Modifier.size(22.dp)
+                                ) {
+                                    if (isSel) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Check,
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = item.name,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    color = ItaSuperTextPrimary,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = if (item.price > 0) "+ ${formatBRL(item.price)}" else "Grátis",
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.Black
+                                    ),
+                                    color = ItaSuperPrimary
+                                )
+                            }
+                        }
+                    }
+                }
+                if (!hasBorders) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    ObservationsField(observations, { observations = it })
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // Etapa de complementos (pastel)
+            if (step == complementStep && hasComplements) {
                 Text(
-                    text = "Adicionar • ${formatBRL(basePrice * quantity)}",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    text = "Selecione até $maxComplements complementos. Toque novamente para remover.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
+                for (c in borders) {
+                    val isSel = selectedComplementIds.contains(c.id)
+                    val atLimit = !isSel && selectedComplementIds.size >= maxComplements
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clickable(enabled = !atLimit) { toggleComplement(c.id) },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSel) Color(0xFFFFF0E6) else Color.White,
+                        border = BorderStroke(
+                            2.dp,
+                            if (isSel) ItaSuperPrimary else Color(0xFFEEEEEE)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (isSel) ItaSuperPrimary else Color.Transparent,
+                                border = BorderStroke(
+                                    2.dp,
+                                    if (isSel) ItaSuperPrimary else Color(0xFFBDBDBD)
+                                ),
+                                modifier = Modifier.size(22.dp)
+                            ) {
+                                if (isSel) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Check,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = c.name,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                color = if (atLimit) Color.Gray else ItaSuperTextPrimary,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = if (c.price > 0) "+ ${formatBRL(c.price)}" else "Grátis",
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.Black
+                                ),
+                                color = ItaSuperPrimary
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                ObservationsField(observations, { observations = it })
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // Etapa de borda (pizza)
+            if (step == borderStep && hasBorders) {
+                for (border in borders) {
+                    val isSel = border.id == selectedBorderId
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clickable { selectedBorderId = border.id },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSel) Color(0xFFFFF0E6) else Color.White,
+                        border = BorderStroke(
+                            2.dp,
+                            if (isSel) ItaSuperPrimary else Color(0xFFEEEEEE)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = if (isSel) ItaSuperPrimary else Color.Transparent,
+                                border = BorderStroke(
+                                    2.dp,
+                                    if (isSel) ItaSuperPrimary else Color(0xFFBDBDBD)
+                                ),
+                                modifier = Modifier.size(22.dp)
+                            ) {
+                                if (isSel) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Check,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = border.name,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                color = ItaSuperTextPrimary,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = if (border.price > 0) "+ ${formatBRL(border.price)}" else "Grátis",
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.Black
+                                ),
+                                color = ItaSuperPrimary
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                ObservationsField(observations, { observations = it })
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
-        Spacer(modifier = Modifier.height(24.dp))
+
+        // Barra inferior fixa
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shadowElevation = 8.dp,
+            color = Color.White
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                if (!isFinalStep) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        if (step > 0) {
+                            Button(
+                                onClick = { handleBack() },
+                                modifier = Modifier.height(52.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFFF0F0F0),
+                                    contentColor = ItaSuperTextPrimary
+                                )
+                            ) {
+                                Text("← Anterior", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Button(
+                            onClick = { handleNext() },
+                            enabled = canAdvance(),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ItaSuperPrimary,
+                                disabledContainerColor = Color(0xFFE0E0E0)
+                            )
+                        ) {
+                            Text(
+                                "Próximo →",
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Button(
+                            onClick = { handleBack() },
+                            modifier = Modifier.height(52.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFF0F0F0),
+                                contentColor = ItaSuperTextPrimary
+                            )
+                        ) {
+                            Text("← Anterior", fontWeight = FontWeight.Bold)
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFFF0F0F0),
+                            modifier = Modifier.height(52.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 8.dp)
+                            ) {
+                                IconButton(
+                                    onClick = { if (quantity > 1) quantity-- },
+                                    enabled = quantity > 1
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Remove,
+                                        contentDescription = "Diminuir"
+                                    )
+                                }
+                                Text(
+                                    text = "$quantity",
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 18.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp)
+                                )
+                                IconButton(onClick = { quantity++ }) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Add,
+                                        contentDescription = "Aumentar"
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { handleAdd() },
+                        enabled = hasBorders.not() || selectedBorderId != null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ItaSuperPrimary,
+                            disabledContainerColor = Color(0xFFE0E0E0)
+                        )
+                    ) {
+                        Text(
+                            text = "Adicionar • ${formatBRL(lineTotal)}",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
     }
+}
+
+/** Campo de observações reutilizado nas etapas finais. */
+@Composable
+private fun ObservationsField(value: String, onChange: (String) -> Unit) {
+    Text(
+        text = "Observações",
+        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+        color = ItaSuperTextPrimary,
+        modifier = Modifier.padding(bottom = 6.dp)
+    )
+    OutlinedTextField(
+        value = value,
+        onValueChange = { if (it.length <= 200) onChange(it) },
+        modifier = Modifier.fillMaxWidth(),
+        placeholder = { Text("Ex: Sem cebola...") },
+        maxLines = 3,
+        shape = RoundedCornerShape(12.dp)
+    )
 }
 
