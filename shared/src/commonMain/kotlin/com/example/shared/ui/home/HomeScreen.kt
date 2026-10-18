@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Fastfood
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocalBar
@@ -773,7 +774,7 @@ private fun HomePromoBanner(
             modifier = Modifier.size(28.dp)
         ) {
             Icon(
-                painter = painterResource(Res.drawable.ic_ita_close),
+                imageVector = Icons.Filled.Close,
                 contentDescription = "Fechar",
                 tint = ItaSuperTextSecondary,
                 modifier = Modifier.size(16.dp)
