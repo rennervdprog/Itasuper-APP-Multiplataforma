@@ -34,7 +34,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -58,10 +57,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
 import com.example.shared.model.CartItem
 import com.example.shared.theme.ItaSuperBorder
 import com.example.shared.theme.ItaSuperHighlightBg
@@ -70,7 +72,8 @@ import com.example.shared.theme.ItaSuperSuccess
 import com.example.shared.ui.mock.findMockStore
 
 // TODO(fase-rede): trocar os mocks (loja, taxa de entrega, cupom) pelos dados
-// reais vindos do SupabaseClient via Ktor.
+// reais vindos do SupabaseClient via Ktor. Layout espelha 1:1 o CartScreen do
+// app Android (Itasuper-APP-NATIVO): mesma estrutura, textos, dps e sps.
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,6 +88,13 @@ fun CartScreen(
     val minimumOrder = store?.minOrder ?: 0.0
     val belowMinimum = minimumOrder > 0.0 && cart.subtotal < minimumOrder
     val minimumMissing = (minimumOrder - cart.subtotal).coerceAtLeast(0.0)
+    // No Android: deliveryQuoteReady = deliveryType == "RETIRADA" || cart.hasOfficialDeliveryQuote.
+    // No mock a cotação oficial está sempre pronta quando há taxa (fase-rede: vir do backend).
+    val deliveryQuoteReady = cart.deliveryType == DeliveryType.PICKUP || cart.deliveryFee > 0.0
+    val isDeliveryUnavailable = store?.let {
+        it.deliveryMode.equals("own", ignoreCase = true) && it.hasAvailableDriver == false
+    } == true
+    val deliveryBlockedForCurrentSelection = isDeliveryUnavailable && cart.deliveryType == DeliveryType.DELIVERY
     var showDeliveryFeeInfo by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -113,7 +123,10 @@ fun CartScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(
+                        onClick = onNavigateBack,
+                        modifier = Modifier.testTag("cart_back_button")
+                    ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Voltar"
@@ -122,7 +135,10 @@ fun CartScreen(
                 },
                 actions = {
                     if (cart.items.isNotEmpty()) {
-                        TextButton(onClick = { cart.clearCart() }) {
+                        TextButton(
+                            onClick = { cart.clearCart() },
+                            modifier = Modifier.testTag("cart_clear_button")
+                        ) {
                             Text("Limpar", color = MaterialTheme.colorScheme.error)
                         }
                     }
@@ -134,6 +150,7 @@ fun CartScreen(
         }
     ) { innerPadding ->
         if (cart.items.isEmpty()) {
+            // Empty State
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -159,21 +176,27 @@ fun CartScreen(
                             modifier = Modifier.size(42.dp)
                         )
                     }
+
                     Spacer(modifier = Modifier.height(20.dp))
+
                     Text(
                         text = "Seu carrinho está vazio",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
+
                     Spacer(modifier = Modifier.height(8.dp))
+
                     Text(
                         text = "Explore nossas lojas parceiras e adicione itens deliciosos ao seu pedido.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp)
                     )
+
                     Spacer(modifier = Modifier.height(28.dp))
+
                     Button(
                         onClick = onNavigateToHome,
                         colors = ButtonDefaults.buttonColors(containerColor = ItaSuperPrimary),
@@ -181,12 +204,14 @@ fun CartScreen(
                         modifier = Modifier
                             .fillMaxWidth(0.8f)
                             .height(48.dp)
+                            .testTag("empty_cart_explore_button")
                     ) {
                         Text("Explorar Lojas", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
                 }
             }
         } else {
+            // Cart Items List
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
@@ -197,32 +222,36 @@ fun CartScreen(
             ) {
                 item {
                     Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Storefront,
-                            contentDescription = null,
-                            tint = ItaSuperPrimary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = "Pedido em ${cart.storeName.ifBlank { "Estabelecimento" }}",
-                                fontWeight = FontWeight.Bold,
-                                style = MaterialTheme.typography.titleMedium
+                    // Store Banner Card
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Storefront,
+                                contentDescription = null,
+                                tint = ItaSuperPrimary,
+                                modifier = Modifier.size(24.dp)
                             )
-                            Text(
-                                text = "${cart.totalItemCount} ${if (cart.totalItemCount == 1) "item" else "itens"} adicionados",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Pedido em ${cart.storeName.ifBlank { "Estabelecimento" }}",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                                Text(
+                                    text = "${cart.totalItemCount} ${if (cart.totalItemCount == 1) "item" else "itens"} adicionados",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
 
+                // Delivery / Pickup Toggle
                 item {
                     Text(
                         text = "Modo de Recebimento",
@@ -238,59 +267,120 @@ fun CartScreen(
                             .background(Color(0xFFFAFAFA))
                             .padding(5.dp)
                     ) {
-                        DeliveryType.entries.forEach { type ->
-                            val selected = cart.deliveryType == type
-                            val label = if (type == DeliveryType.DELIVERY) "Entrega" else "Retirar na loja"
-                            val icon = if (type == DeliveryType.DELIVERY) Icons.Filled.LocalShipping else Icons.Filled.Storefront
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(if (selected) Color(0xFFFFF3EC) else Color.White)
-                                    .border(
-                                        if (selected) 2.dp else 1.dp,
-                                        if (selected) ItaSuperPrimary else Color(0xFFE2E2E2),
-                                        RoundedCornerShape(14.dp)
-                                    )
-                                    .clickable { cart.selectDeliveryType(type) }
-                                    .padding(vertical = 12.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                        val isDelivery = cart.deliveryType == DeliveryType.DELIVERY
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (isDelivery) Color(0xFFFFF3EC) else Color.White)
+                                .border(if (isDelivery) 2.dp else 1.dp, if (isDelivery) ItaSuperPrimary else Color(0xFFE2E2E2), RoundedCornerShape(14.dp))
+                                .clickable { cart.selectDeliveryType(DeliveryType.DELIVERY) }
+                                .padding(vertical = 12.dp)
+                                .testTag("delivery_type_delivery_button"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Filled.LocalShipping,
+                                    contentDescription = null,
+                                    tint = if (isDelivery) ItaSuperPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Entrega",
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isDelivery) ItaSuperPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (isDelivery) {
+                                    Spacer(modifier = Modifier.width(6.dp))
                                     Icon(
-                                        imageVector = icon,
-                                        contentDescription = null,
-                                        tint = if (selected) ItaSuperPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        imageVector = Icons.Filled.CheckCircle,
+                                        contentDescription = "Entrega selecionada",
+                                        tint = ItaSuperPrimary,
                                         modifier = Modifier.size(18.dp)
                                     )
+                                }
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (!isDelivery) Color(0xFFFFF3EC) else Color.White)
+                                .border(if (!isDelivery) 2.dp else 1.dp, if (!isDelivery) ItaSuperPrimary else Color(0xFFE2E2E2), RoundedCornerShape(14.dp))
+                                .clickable { cart.selectDeliveryType(DeliveryType.PICKUP) }
+                                .padding(vertical = 12.dp)
+                                .testTag("delivery_type_pickup_button"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Filled.Storefront,
+                                    contentDescription = null,
+                                    tint = if (!isDelivery) ItaSuperPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Retirar na loja",
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (!isDelivery) ItaSuperPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (!isDelivery) {
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = label,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (selected) ItaSuperPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    Icon(
+                                        imageVector = Icons.Filled.CheckCircle,
+                                        contentDescription = "Retirada selecionada",
+                                        tint = ItaSuperPrimary,
+                                        modifier = Modifier.size(18.dp)
                                     )
-                                    if (selected) {
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Icon(
-                                            imageVector = Icons.Filled.CheckCircle,
-                                            contentDescription = "Selecionado",
-                                            tint = ItaSuperPrimary,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
                                 }
                             }
                         }
                     }
+                    if (isDeliveryUnavailable) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(ItaSuperHighlightBg)
+                                .border(1.dp, ItaSuperPrimary.copy(alpha = 0.22f), RoundedCornerShape(12.dp))
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.LocalShipping,
+                                contentDescription = null,
+                                tint = ItaSuperPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = store?.deliveryAvailabilityMessage?.ifBlank {
+                                    "Entrega indisponível no momento. Selecione retirada para continuar."
+                                } ?: "Entrega indisponível no momento. Selecione retirada para continuar.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
                 }
 
+                // Cart Items
                 itemsIndexed(cart.items, key = { idx, item -> "cart_item_${idx}_${item.product.id}" }) { _, cartItem ->
                     CartItemCard(
                         cartItem = cartItem,
-                        onUpdateQuantity = { newQty -> cart.updateQuantity(cartItem.product.id, newQty) }
+                        onUpdateQuantity = { newQty ->
+                            cart.updateQuantity(cartItem.product.id, newQty)
+                        }
                     )
                 }
 
+                // Coupon Input Section
                 item {
                     Column(
                         modifier = Modifier
@@ -311,8 +401,11 @@ fun CartScreen(
                                 style = MaterialTheme.typography.titleMedium
                             )
                         }
+
                         Spacer(modifier = Modifier.height(10.dp))
+
                         if (cart.appliedCouponCode != null) {
+                            // Applied coupon banner
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -344,7 +437,11 @@ fun CartScreen(
                                         )
                                     }
                                 }
-                                IconButton(onClick = { cart.removeCoupon() }) {
+
+                                IconButton(
+                                    onClick = { cart.removeCoupon() },
+                                    modifier = Modifier.testTag("remove_coupon_button")
+                                ) {
                                     Icon(
                                         imageVector = Icons.Filled.Close,
                                         contentDescription = "Remover Cupom",
@@ -353,30 +450,38 @@ fun CartScreen(
                                 }
                             }
                         } else {
+                            // Coupon input field
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 OutlinedTextField(
                                     value = cart.couponInput,
                                     onValueChange = { cart.couponInput = it },
-                                    placeholder = { Text("Código do cupom (ex: PROMO10)") },
+                                    placeholder = { Text("Código do cupom") },
                                     singleLine = true,
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedBorderColor = ItaSuperPrimary,
                                         unfocusedBorderColor = MaterialTheme.colorScheme.outline
                                     ),
                                     shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("coupon_input_field")
                                 )
+
                                 Spacer(modifier = Modifier.width(8.dp))
+
                                 Button(
                                     onClick = { cart.applyCoupon() },
                                     enabled = cart.couponInput.isNotBlank(),
                                     colors = ButtonDefaults.buttonColors(containerColor = ItaSuperPrimary),
                                     shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier.height(56.dp)
+                                    modifier = Modifier
+                                        .height(56.dp)
+                                        .testTag("apply_coupon_button")
                                 ) {
                                     Text("Aplicar", fontWeight = FontWeight.Bold)
                                 }
                             }
+
                             if (cart.couponError != null) {
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
@@ -389,6 +494,7 @@ fun CartScreen(
                     }
                 }
 
+                // Summary Financial Card
                 item {
                     Column(
                         modifier = Modifier
@@ -400,7 +506,9 @@ fun CartScreen(
                             fontWeight = FontWeight.ExtraBold,
                             style = MaterialTheme.typography.titleLarge
                         )
+
                         Spacer(modifier = Modifier.height(12.dp))
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
@@ -408,7 +516,9 @@ fun CartScreen(
                             Text("Subtotal dos itens", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(formatBRL(cart.subtotal), fontWeight = FontWeight.Medium)
                         }
+
                         Spacer(modifier = Modifier.height(8.dp))
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -430,10 +540,12 @@ fun CartScreen(
                             }
                             when {
                                 cart.deliveryType == DeliveryType.PICKUP -> Text("Grátis (Retirada)", color = ItaSuperSuccess, fontWeight = FontWeight.Bold)
+                                !deliveryQuoteReady -> Text("A confirmar", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 cart.effectiveDeliveryFee == 0.0 -> Text("Grátis", color = ItaSuperSuccess, fontWeight = FontWeight.Bold)
                                 else -> Text(formatBRL(cart.effectiveDeliveryFee), fontWeight = FontWeight.Medium)
                             }
                         }
+
                         if (cart.effectiveCouponDiscount > 0) {
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(
@@ -444,7 +556,9 @@ fun CartScreen(
                                 Text("- ${formatBRL(cart.effectiveCouponDiscount)}", color = ItaSuperSuccess, fontWeight = FontWeight.Bold)
                             }
                         }
+
                         HorizontalDivider(color = ItaSuperBorder, modifier = Modifier.padding(vertical = 14.dp))
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -455,9 +569,9 @@ fun CartScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                Text("Total", fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
+                                Text(if (deliveryQuoteReady) "Total" else "Total parcial", fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
                                 Text(
-                                    "Valor final do pedido",
+                                    if (deliveryQuoteReady) "Valor final do pedido" else "A taxa será confirmada no checkout",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.labelSmall
                                 )
@@ -472,7 +586,7 @@ fun CartScreen(
                     }
                 }
 
-                if (isStoreClosed || belowMinimum) {
+                if (isStoreClosed || belowMinimum || deliveryBlockedForCurrentSelection) {
                     item {
                         Card(
                             colors = CardDefaults.cardColors(
@@ -482,10 +596,12 @@ fun CartScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = if (isStoreClosed) {
-                                    "Esta loja está fechada no momento. O pedido não pode ser finalizado agora."
-                                } else {
-                                    "Pedido mínimo: ${formatBRL(minimumOrder)}. Faltam ${formatBRL(minimumMissing)}."
+                                text = when {
+                                    isStoreClosed -> "Esta loja está fechada no momento. O pedido não pode ser finalizado agora."
+                                    deliveryBlockedForCurrentSelection -> store?.deliveryAvailabilityMessage?.ifBlank {
+                                        "Entrega indisponível no momento. Selecione retirada para continuar."
+                                    } ?: "Entrega indisponível no momento. Selecione retirada para continuar."
+                                    else -> "Pedido mínimo: ${formatBRL(minimumOrder)}. Faltam ${formatBRL(minimumMissing)}."
                                 },
                                 color = if (isStoreClosed) MaterialTheme.colorScheme.onErrorContainer else ItaSuperPrimary,
                                 fontWeight = FontWeight.Bold,
@@ -495,21 +611,28 @@ fun CartScreen(
                     }
                 }
 
+                // Proceed Button
                 item {
                     Button(
                         onClick = onNavigateToCheckout,
-                        enabled = !isStoreClosed && !belowMinimum,
+                        enabled = !isStoreClosed && !belowMinimum && !deliveryBlockedForCurrentSelection,
                         colors = ButtonDefaults.buttonColors(containerColor = ItaSuperPrimary),
                         shape = RoundedCornerShape(18.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(58.dp)
+                            .testTag("proceed_to_checkout_button")
                     ) {
                         Text(
                             text = when {
                                 isStoreClosed -> "Loja fechada"
                                 belowMinimum -> "Faltam ${formatBRL(minimumMissing)}"
-                                else -> "Avançar para Checkout • ${formatBRL(cart.total)}"
+                                deliveryBlockedForCurrentSelection -> "Selecione retirada para continuar"
+                                else -> if (deliveryQuoteReady) {
+                                    "Avançar para Checkout • ${formatBRL(cart.total)}"
+                                } else {
+                                    "Avançar para Checkout • Taxa a confirmar"
+                                }
                             },
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp
@@ -521,6 +644,7 @@ fun CartScreen(
         }
     }
 
+    // Modal estilo Zé Delivery: explica para onde vai a taxa de entrega.
     if (showDeliveryFeeInfo) {
         DeliveryFeeInfoBottomSheet(
             isPdvOnly = store?.planType.equals("pdv_only", ignoreCase = true),
@@ -591,22 +715,34 @@ private fun CartItemCard(
                 .padding(horizontal = 4.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(76.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(ItaSuperHighlightBg),
-                contentAlignment = Alignment.Center
-            ) {
-                // TODO(fase-rede): carregar a imagem real do produto (cartItem.product.imageUrl).
-                Icon(
-                    imageVector = Icons.Filled.ShoppingBag,
-                    contentDescription = null,
-                    tint = ItaSuperPrimary,
-                    modifier = Modifier.size(28.dp)
+            if (cartItem.product.imageUrl.isNotBlank()) {
+                AsyncImage(
+                    model = cartItem.product.imageUrl,
+                    contentDescription = cartItem.product.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(76.dp)
+                        .clip(RoundedCornerShape(16.dp))
                 )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(76.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(ItaSuperHighlightBg),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.ShoppingBag,
+                        contentDescription = null,
+                        tint = ItaSuperPrimary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
             }
+
             Spacer(modifier = Modifier.width(14.dp))
+
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = cartItem.product.name,
@@ -615,6 +751,7 @@ private fun CartItemCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+
                 if (cartItem.selectedAddons.isNotEmpty()) {
                     val addonsText = cartItem.selectedAddons.joinToString(", ") { it.itemName }
                     Text(
@@ -625,6 +762,7 @@ private fun CartItemCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+
                 if (cartItem.notes.isNotBlank()) {
                     Text(
                         text = "Obs: ${cartItem.notes}",
@@ -634,7 +772,9 @@ private fun CartItemCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+
                 Spacer(modifier = Modifier.height(6.dp))
+
                 Text(
                     text = formatBRL(cartItem.totalPrice),
                     fontWeight = FontWeight.ExtraBold,
@@ -642,6 +782,7 @@ private fun CartItemCard(
                     style = MaterialTheme.typography.titleMedium
                 )
             }
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -661,11 +802,13 @@ private fun CartItemCard(
                         modifier = Modifier.size(18.dp)
                     )
                 }
+
                 Text(
                     text = "${cartItem.quantity}",
                     fontWeight = FontWeight.ExtraBold,
                     modifier = Modifier.padding(horizontal = 10.dp)
                 )
+
                 IconButton(
                     onClick = { onUpdateQuantity(cartItem.quantity + 1) },
                     modifier = Modifier.size(36.dp)
