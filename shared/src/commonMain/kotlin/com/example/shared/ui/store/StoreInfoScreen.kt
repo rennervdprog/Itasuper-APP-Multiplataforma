@@ -14,7 +14,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -27,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -105,7 +110,66 @@ fun StoreInfoScreen(
     val aggAvgTop = rating.avg
     val aggCountTop = rating.count
 
-    Scaffold(containerColor = Color(0xFFF7F7F8)) { paddingValues ->
+    val listState = rememberLazyListState()
+    // Padrao iFood (correcao do bug visual confirmada pelo Renner em 18/10/2026;
+    // o app original tambem tinha a redundancia): a top bar e fixa e mostra
+    // apenas voltar + favoritar. O nome da loja em maiusculas aparece na top bar
+    // somente depois de rolar o cabecalho grande para fora da tela.
+    val showTitle by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 }
+    }
+
+    Scaffold(
+        containerColor = Color(0xFFF7F7F8),
+        topBar = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFF7F7F8))
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Voltar",
+                    tint = ItaSuperPrimary,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clickable(onClick = onBackClick)
+                        .padding(8.dp)
+                )
+                AnimatedVisibility(
+                    visible = showTitle,
+                    modifier = Modifier.weight(1f),
+                    enter = fadeIn(),
+                    exit = fadeOut()
+                ) {
+                    Text(
+                        text = store.name.uppercase(),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1A1A1A),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+                }
+                Icon(
+                    imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                    contentDescription = "Favoritar",
+                    tint = ItaSuperPrimary,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clickable {
+                            isFavorite = !isFavorite
+                            onFavoriteChange(isFavorite)
+                        }
+                        .padding(8.dp)
+                )
+            }
+        }
+    ) { paddingValues ->
         if (isLoading) {
             Box(
                 modifier = Modifier.fillMaxSize().padding(paddingValues),
@@ -113,47 +177,9 @@ fun StoreInfoScreen(
             ) { CircularProgressIndicator(color = ItaSuperPrimary) }
         } else {
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize().padding(paddingValues)
             ) {
-                // Topo: voltar | nome | favoritar
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            // statusBarsPadding removido: o Scaffold raiz do App() ja aplica
-                            // o inset da status bar; manter aqui duplicava o espaco no topo.
-                            .padding(horizontal = 8.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Voltar",
-                            tint = ItaSuperPrimary,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clickable(onClick = onBackClick)
-                                .padding(8.dp)
-                        )
-                        // Nome removido da top bar a pedido do Renner (18/10/2026):
-                        // o nome em maiusculas aqui duplicava o cabecalho grande
-                        // com nome + categoria + logo logo abaixo.
-                        Spacer(modifier = Modifier.weight(1f))
-                        Icon(
-                            imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                            contentDescription = "Favoritar",
-                            tint = ItaSuperPrimary,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clickable {
-                                    isFavorite = !isFavorite
-                                    onFavoriteChange(isFavorite)
-                                }
-                                .padding(8.dp)
-                        )
-                    }
-                }
-
                 // Nome + logo + categoria • distância
                 item {
                     Row(
