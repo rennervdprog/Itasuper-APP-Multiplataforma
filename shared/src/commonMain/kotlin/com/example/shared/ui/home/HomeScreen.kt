@@ -33,21 +33,14 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Fastfood
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.LocalBar
 import androidx.compose.material.icons.filled.LocalPizza
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MedicalServices
-import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Repeat
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.ShoppingCart
-import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.LocalShipping
 import androidx.compose.material.icons.outlined.Store
@@ -76,7 +69,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -85,6 +77,27 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.example.shared.generated.resources.Res
+import com.example.shared.generated.resources.ic_home_category_pastel
+import com.example.shared.generated.resources.ic_home_placeholder_smile
+import com.example.shared.generated.resources.ic_home_sort
+import com.example.shared.generated.resources.ic_ita_bag
+import com.example.shared.generated.resources.ic_ita_chevron_right
+import com.example.shared.generated.resources.ic_ita_store
+import com.example.shared.generated.resources.ic_lucide_bell
+import com.example.shared.generated.resources.ic_lucide_chevron_down
+import com.example.shared.generated.resources.ic_lucide_hamburger
+import com.example.shared.generated.resources.ic_lucide_layout_grid
+import com.example.shared.generated.resources.ic_lucide_map_pin
+import com.example.shared.generated.resources.ic_lucide_search
+import com.example.shared.generated.resources.ic_lucide_shopping_bag
+import com.example.shared.generated.resources.ic_preview_acai
+import com.example.shared.generated.resources.ic_preview_basket
+import com.example.shared.generated.resources.ic_preview_burger
+import com.example.shared.generated.resources.ic_preview_drink
+import com.example.shared.generated.resources.ic_preview_marmita
+import com.example.shared.generated.resources.ic_preview_pharmacy
+import com.example.shared.generated.resources.ic_preview_pizza
 import com.example.shared.model.Banner
 import com.example.shared.model.CategoryItem
 import com.example.shared.model.DiscoverProduct
@@ -114,6 +127,8 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.DrawableResource
+import org.jetbrains.compose.resources.painterResource
 import kotlin.math.round
 
 /**
@@ -125,9 +140,9 @@ import kotlin.math.round
  *
  * - Sem ViewModel: estado local (`remember`) + mocks
  *   (`com.example.shared.ui.mock`) com fallback `SupabaseApi.fetchActiveStores()`.
- * - `painterResource` não existe no commonMain: drawables viraram
- *   `Icons.Filled.*` (material-icons-extended, já declarado no shared) ou
- *   placeholders de inicial em Box, como o KMP já fazia.
+ * - Recursos visuais via composeResources (`Res.drawable.*`, `Res.font.*`):
+ *   drawables do app original (ic_ita_*, ic_lucide_*, ic_preview_*, marca)
+ *   usados com `painterResource`, iguais aos do Android.
  * - `String.format` não existe no commonMain: [formatPriceBR] / [formatKmBR].
  * - `java.util.Calendar` não existe no commonMain: relógio via kotlinx-datetime
  *   (America/Sao_Paulo), mesma regra de faixa de horário do original.
@@ -623,7 +638,7 @@ private fun HomeHeaderSection(
                     modifier = Modifier.clickable { onAddressClick() }
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.LocationOn,
+                        painter = painterResource(Res.drawable.ic_lucide_map_pin),
                         contentDescription = null,
                         tint = ItaSuperPrimary,
                         modifier = Modifier.size(24.dp)
@@ -655,7 +670,7 @@ private fun HomeHeaderSection(
                         }
                     }
                     Icon(
-                        imageVector = Icons.Filled.KeyboardArrowDown,
+                        painter = painterResource(Res.drawable.ic_lucide_chevron_down),
                         contentDescription = "Alterar endereço",
                         tint = Color.Unspecified,
                         modifier = Modifier.size(20.dp)
@@ -668,13 +683,13 @@ private fun HomeHeaderSection(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 HomeTopActionButton(
-                    icon = Icons.Filled.NotificationsNone,
+                    icon = Res.drawable.ic_lucide_bell,
                     contentDescription = "Abrir avisos",
                     onClick = onNotificationsClick,
                     modifier = Modifier.testTag("header_notifications_button")
                 )
                 HomeTopActionButton(
-                    icon = Icons.Filled.ShoppingBag,
+                    icon = Res.drawable.ic_lucide_shopping_bag,
                     contentDescription = "Abrir sacola",
                     onClick = onCartClick,
                     modifier = Modifier.testTag("header_cart_button")
@@ -686,7 +701,7 @@ private fun HomeHeaderSection(
 
 @Composable
 private fun HomeTopActionButton(
-    icon: ImageVector,
+    icon: DrawableResource,
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -700,7 +715,7 @@ private fun HomeTopActionButton(
             .border(1.dp, Color(0xFFE8E8E8), CircleShape)
     ) {
         Icon(
-            imageVector = icon,
+            painter = painterResource(icon),
             contentDescription = contentDescription,
             tint = Color.Unspecified,
             modifier = Modifier.size(24.dp)
@@ -733,7 +748,7 @@ private fun HomeSearchSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Filled.Search,
+                painter = painterResource(Res.drawable.ic_lucide_search),
                 contentDescription = null,
                 tint = Color.Unspecified,
                 modifier = Modifier.size(28.dp)
@@ -812,8 +827,19 @@ private fun HomeExplorationCategoryItem(
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    // No commonMain não há os drawables 3D de categoria: inicial em círculo,
-    // como o placeholder que o KMP já usava.
+    // Mesma regra do app original: iconName -> drawable (composeResources).
+    val iconRes = when (category.iconName.lowercase()) {
+        "layout_grid", "todas", "todos", "all" -> Res.drawable.ic_lucide_layout_grid
+        "fastfood", "lanche", "hamburger", "hamburguer" -> Res.drawable.ic_preview_burger
+        "local_pizza", "pizza" -> Res.drawable.ic_preview_pizza
+        "restaurant", "marmita" -> Res.drawable.ic_preview_marmita
+        "bakery_dining", "pastel" -> Res.drawable.ic_home_category_pastel
+        "icecream", "acai", "açaí" -> Res.drawable.ic_preview_acai
+        "local_bar", "bebidas" -> Res.drawable.ic_preview_drink
+        "shopping_cart", "mercado", "market" -> Res.drawable.ic_preview_basket
+        "pharmacy", "farmacia", "farmácia", "farmacias" -> Res.drawable.ic_preview_pharmacy
+        else -> Res.drawable.ic_lucide_hamburger
+    }
     val label = category.name.ifBlank { category.id.replaceFirstChar { it.uppercase() } }
 
     Column(
@@ -836,14 +862,11 @@ private fun HomeExplorationCategoryItem(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = label.take(1).uppercase(),
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontFamily = ManropeFontFamily,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 20.sp,
-                        color = if (selected) ItaSuperPrimary else Color(0xFF8A8A8A)
-                    )
+                Icon(
+                    painter = painterResource(iconRes),
+                    contentDescription = label,
+                    tint = Color.Unspecified,
+                    modifier = Modifier.size(32.dp)
                 )
             }
         }
@@ -1882,14 +1905,13 @@ private fun StoreLogoThumbnail(
                     lineHeight = if (circular) 18.sp else 23.sp,
                     color = placeholderForeground
                 )
-                // No commonMain não há o drawable do sorriso: glifo equivalente.
-                Text(
-                    text = "☺",
-                    fontFamily = ManropeFontFamily,
-                    fontSize = if (circular) 17.sp else 22.sp,
-                    lineHeight = if (circular) 17.sp else 22.sp,
-                    color = placeholderForeground,
-                    modifier = Modifier.offset(y = (-6).dp)
+                Icon(
+                    painter = painterResource(Res.drawable.ic_home_placeholder_smile),
+                    contentDescription = null,
+                    tint = placeholderForeground,
+                    modifier = Modifier
+                        .offset(y = (-6).dp)
+                        .size(if (circular) 17.dp else 22.dp)
                 )
             }
         }
@@ -1910,7 +1932,7 @@ private fun HomeFavoriteStoresSection(
                 modifier = Modifier.height(25.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Storefront,
+                    painter = painterResource(Res.drawable.ic_ita_store),
                     contentDescription = null,
                     tint = Color.Unspecified,
                     modifier = Modifier.size(19.dp)
@@ -2220,7 +2242,7 @@ private fun HomeDaypartSection(
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Filled.Storefront,
+                        painter = painterResource(Res.drawable.ic_ita_store),
                         contentDescription = null,
                         tint = Color.Unspecified,
                         modifier = Modifier.size(19.dp)
@@ -2417,7 +2439,7 @@ private fun HomeAffordableProductsSection(
                                 )
                             } else {
                                 Icon(
-                                    imageVector = Icons.Filled.ShoppingBag,
+                                    painter = painterResource(Res.drawable.ic_ita_bag),
                                     contentDescription = null,
                                     tint = Color(0xFF8A8A8A),
                                     modifier = Modifier.size(25.dp)
@@ -2552,7 +2574,7 @@ private fun HomeRepeatProductsSection(
                                 )
                             } else {
                                 Icon(
-                                    imageVector = Icons.Filled.ShoppingBag,
+                                    painter = painterResource(Res.drawable.ic_ita_bag),
                                     contentDescription = null,
                                     tint = Color(0xFF8A8A8A),
                                     modifier = Modifier.size(25.dp)
@@ -2909,7 +2931,7 @@ private fun HomeStoreSortControl(
                 horizontalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Sort,
+                    painter = painterResource(Res.drawable.ic_home_sort),
                     contentDescription = null,
                     tint = Color.Unspecified,
                     modifier = Modifier.size(16.dp)
@@ -3118,7 +3140,7 @@ private fun StoreCardItem(
 
             Spacer(modifier = Modifier.width(6.dp))
             Icon(
-                imageVector = Icons.Filled.KeyboardArrowRight,
+                painter = painterResource(Res.drawable.ic_ita_chevron_right),
                 contentDescription = "Abrir loja",
                 tint = Color.Unspecified,
                 modifier = Modifier.size(24.dp)

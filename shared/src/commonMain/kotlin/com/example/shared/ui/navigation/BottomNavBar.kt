@@ -9,12 +9,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.ShoppingCart
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -22,29 +16,35 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.shared.generated.resources.Res
+import com.example.shared.generated.resources.ic_ita_bell
+import com.example.shared.generated.resources.ic_ita_home
+import com.example.shared.generated.resources.ic_ita_profile
+import com.example.shared.generated.resources.ic_ita_receipt
+import com.example.shared.generated.resources.ic_ita_search
 import com.example.shared.theme.ItaSuperBackground
 import com.example.shared.theme.ItaSuperPrimary
+import org.jetbrains.compose.resources.DrawableResource
+import org.jetbrains.compose.resources.painterResource
 
 /**
  * Barra de navegação inferior (migração do ItaSuperBottomNavBar do Android).
- * Usa ícones Material em vez dos drawables customizados (R.drawable) —
- * os ícones customizados virão numa fase futura via compose resources.
+ * Usa os mesmos drawables do app original (ic_ita_*), via composeResources.
  */
 private data class NavItem(
     val screen: AppScreen,
-    val icon: ImageVector
+    val icon: DrawableResource
 )
 
 private val NAV_ITEMS = listOf(
-    NavItem(AppScreen.HOME, Icons.Filled.Home),
-    NavItem(AppScreen.SEARCH, Icons.Filled.Search),
-    NavItem(AppScreen.ORDERS, Icons.Filled.ShoppingCart),
-    NavItem(AppScreen.NOTIFICATIONS, Icons.Filled.Notifications),
-    NavItem(AppScreen.PROFILE, Icons.Filled.Person)
+    NavItem(AppScreen.HOME, Res.drawable.ic_ita_home),
+    NavItem(AppScreen.SEARCH, Res.drawable.ic_ita_search),
+    NavItem(AppScreen.ORDERS, Res.drawable.ic_ita_receipt),
+    NavItem(AppScreen.NOTIFICATIONS, Res.drawable.ic_ita_bell),
+    NavItem(AppScreen.PROFILE, Res.drawable.ic_ita_profile)
 )
 
 @Composable
@@ -81,7 +81,7 @@ fun ItaSuperBottomNavBar(
                         .clickable { onNavigate(item.screen) }
                 ) {
                     Icon(
-                        imageVector = item.icon,
+                        painter = painterResource(item.icon),
                         contentDescription = item.screen.title,
                         tint = tint,
                         modifier = Modifier.size(26.dp)

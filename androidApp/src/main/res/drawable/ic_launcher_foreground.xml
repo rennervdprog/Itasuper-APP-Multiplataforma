@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Marca branca sobre o laranja do fundo, igual ao splash. Antes o foreground era
+  o itasuper_brand_icon, que e 91% #FF441F: laranja sobre vermelho, praticamente
+  sem contraste.
+  Os 66dp cabem na zona segura de 72dp do icone adaptativo, entao nenhuma mascara
+  do launcher corta o desenho.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="66dp"
+        android:height="66dp"
+        android:drawable="@drawable/itasuper_brand_mark_white"
+        android:gravity="center" />
+</layer-list>

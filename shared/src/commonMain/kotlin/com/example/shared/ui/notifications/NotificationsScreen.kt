@@ -21,11 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.LocalShipping
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -58,6 +54,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.shared.generated.resources.Res
+import com.example.shared.generated.resources.ic_ita_bell
+import com.example.shared.generated.resources.ic_ita_check
+import com.example.shared.generated.resources.ic_ita_delivery
+import com.example.shared.generated.resources.ic_ita_refresh
+import org.jetbrains.compose.resources.painterResource
 import com.example.shared.model.ClientNotification
 import com.example.shared.theme.ItaSuperBackground
 import com.example.shared.theme.ItaSuperHighlightBg
@@ -160,7 +162,7 @@ fun NotificationsScreen() {
                             modifier = Modifier.testTag("refresh_notifications")
                         ) {
                             Icon(
-                                imageVector = Icons.Filled.Refresh,
+                                painter = painterResource(Res.drawable.ic_ita_refresh),
                                 contentDescription = "Atualizar notificações",
                                 tint = ItaSuperTextPrimary
                             )
@@ -351,7 +353,7 @@ private fun EmptyNotificationsContent(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Filled.Notifications,
+                painter = painterResource(Res.drawable.ic_ita_bell),
                 contentDescription = null,
                 tint = ItaSuperPrimary,
                 modifier = Modifier.size(40.dp)
@@ -467,11 +469,11 @@ private fun NotificationRowContent(notification: ClientNotification, onClick: ()
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = when (notification.type.lowercase()) {
-                    "saiu_entrega", "em_transito", "entregue" -> Icons.Filled.LocalShipping
-                    "pronto_para_entrega", "finalizado" -> Icons.Filled.CheckCircle
-                    else -> Icons.Filled.Notifications
-                },
+                painter = painterResource(when (notification.type.lowercase()) {
+                    "saiu_entrega", "em_transito", "entregue" -> Res.drawable.ic_ita_delivery
+                    "pronto_para_entrega", "finalizado" -> Res.drawable.ic_ita_check
+                    else -> Res.drawable.ic_ita_bell
+                }),
                 contentDescription = null,
                 tint = if (notification.isRead) ItaSuperTextSecondary else ItaSuperPrimary,
                 modifier = Modifier.size(21.dp)

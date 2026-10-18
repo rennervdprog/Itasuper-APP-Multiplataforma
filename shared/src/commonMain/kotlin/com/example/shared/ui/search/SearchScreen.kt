@@ -10,6 +10,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -72,6 +73,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.example.shared.generated.resources.Res
+import com.example.shared.generated.resources.ic_preview_acai
+import com.example.shared.generated.resources.ic_preview_burger
+import com.example.shared.generated.resources.ic_preview_drink
+import com.example.shared.generated.resources.ic_preview_marmita
+import com.example.shared.generated.resources.ic_preview_pharmacy
+import com.example.shared.generated.resources.ic_preview_pizza
+import org.jetbrains.compose.resources.DrawableResource
+import org.jetbrains.compose.resources.painterResource
 import com.example.shared.model.DiscoverProduct
 import com.example.shared.model.Store
 import com.example.shared.theme.ItaSuperPrimary
@@ -704,6 +714,18 @@ private fun DiscoverFilterChips(
 }
 
 /** Grade de categorias do protótipo: 2 linhas com rolagem horizontal (.cats). */
+
+/** Mesmo mapeamento do app original (categoryDrawableId): id da categoria -> drawable. */
+private fun categoryDrawableResource(categoryId: String): DrawableResource? = when (categoryId.lowercase()) {
+    "pizzaria", "pizza" -> Res.drawable.ic_preview_pizza
+    "acai", "açaí" -> Res.drawable.ic_preview_acai
+    "marmita" -> Res.drawable.ic_preview_marmita
+    "bebidas", "bebida" -> Res.drawable.ic_preview_drink
+    "farmacia", "farmacias", "farmácia" -> Res.drawable.ic_preview_pharmacy
+    "lanches", "lanche", "hamburguer", "hambúrguer", "burger" -> Res.drawable.ic_preview_burger
+    else -> null
+}
+
 @Composable
 private fun DiscoverCategoryGrid(
     categories: List<SearchCategory>,
@@ -744,16 +766,27 @@ private fun DiscoverCategoryGrid(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    // KMP: sem drawables — usa a inicial como no fallback do app original.
-                    Text(
-                        text = category.name.take(1).uppercase(),
-                        style = TextStyle(
-                            fontFamily = ManropeFontFamily,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 19.sp,
-                            color = ItaSuperPrimary
+                    // Igual ao app original: drawable da categoria quando há
+                    // mapeamento; inicial como fallback.
+                    val categoryIcon = categoryDrawableResource(category.id)
+                    if (categoryIcon != null) {
+                        Image(
+                            painter = painterResource(categoryIcon),
+                            contentDescription = category.name,
+                            modifier = Modifier.size(48.dp),
+                            contentScale = ContentScale.Crop
                         )
-                    )
+                    } else {
+                        Text(
+                            text = category.name.take(1).uppercase(),
+                            style = TextStyle(
+                                fontFamily = ManropeFontFamily,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 19.sp,
+                                color = ItaSuperPrimary
+                            )
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(

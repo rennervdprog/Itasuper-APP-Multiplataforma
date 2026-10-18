@@ -79,6 +79,9 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.example.shared.generated.resources.Res
+import com.example.shared.generated.resources.ic_home_placeholder_smile
+import org.jetbrains.compose.resources.painterResource
 import com.example.shared.model.MenuSection
 import com.example.shared.model.Product
 import com.example.shared.model.SelectedAddonItem
@@ -1120,15 +1123,28 @@ private fun StoreShowcaseLogo(store: Store, modifier: Modifier = Modifier) {
                 )
             }
             if (imageFailed) {
-                Text(
-                    text = initial,
-                    style = MaterialTheme.typography.headlineLarge.copy(
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 34.sp,
-                        lineHeight = 32.sp,
-                        color = placeholderForeground
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = initial,
+                        style = MaterialTheme.typography.headlineLarge.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 34.sp,
+                            lineHeight = 32.sp,
+                            color = placeholderForeground
+                        )
                     )
-                )
+                    Icon(
+                        painter = painterResource(Res.drawable.ic_home_placeholder_smile),
+                        contentDescription = null,
+                        tint = placeholderForeground,
+                        modifier = Modifier
+                            .offset(y = (-7).dp)
+                            .size(31.dp)
+                    )
+                }
             }
         }
     }

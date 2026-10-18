@@ -20,20 +20,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Badge
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Dialpad
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Phone
-import androidx.compose.material.icons.filled.Store
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -77,6 +63,22 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.Image
+import com.example.shared.generated.resources.Res
+import com.example.shared.generated.resources.ic_ita_alert
+import com.example.shared.generated.resources.ic_ita_check
+import com.example.shared.generated.resources.ic_ita_check_circle
+import com.example.shared.generated.resources.ic_ita_eye
+import com.example.shared.generated.resources.ic_ita_eye_off
+import com.example.shared.generated.resources.ic_ita_id_card
+import com.example.shared.generated.resources.ic_ita_key
+import com.example.shared.generated.resources.ic_ita_keypad
+import com.example.shared.generated.resources.ic_ita_lock
+import com.example.shared.generated.resources.ic_ita_mail
+import com.example.shared.generated.resources.ic_ita_phone
+import com.example.shared.generated.resources.ic_ita_profile
+import com.example.shared.generated.resources.itasuper_brand_icon
+import org.jetbrains.compose.resources.painterResource
 import com.example.shared.model.LegalDocumentLinks
 import com.example.shared.model.PendingLegalChanges
 import com.example.shared.theme.ItaSuperBorder
@@ -95,9 +97,8 @@ import com.example.shared.util.Masks
  * (Supabase) está mockada — ver TODO(fase-rede).
  *
  * Diferenças intencionais vs. o original Android:
- * - Ícones: drawables (R.drawable.ic_ita_*) viraram Icons.Filled do
- *   material-icons-core; o logo oficial ainda não foi migrado para
- *   composeResources (ver TODO(fase-recursos) no cabeçalho).
+ * - Ícones e logo: mesmos drawables do original via composeResources
+ *   (`Res.drawable.ic_ita_*`, `itasuper_brand_icon`).
  * - Abertura de Termos/Privacidade: LocalUriHandler em vez de
  *   Intent(ACTION_VIEW) — equivalente KMP, sem android.net.Uri.
  */
@@ -380,22 +381,14 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(bottom = 28.dp)
                 ) {
-                    // TODO(fase-recursos): trocar pelo logo oficial (compose resources)
-                    // quando os drawables da marca forem migrados do app Android.
-                    Box(
+                    // Logo oficial (igual ao app Android: itasuper_brand_icon).
+                    Image(
+                        painter = painterResource(Res.drawable.itasuper_brand_icon),
+                        contentDescription = "ItaSuper",
                         modifier = Modifier
                             .size(44.dp)
                             .clip(RoundedCornerShape(14.dp))
-                            .background(ItaSuperPrimary),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Store,
-                            contentDescription = "ItaSuper",
-                            tint = Color.White,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
+                    )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = buildAnnotatedString {
@@ -571,7 +564,7 @@ private fun LoginForm(
             label = { Text("E-mail") },
             placeholder = { Text("seu.email@exemplo.com") },
             leadingIcon = {
-                Icon(Icons.Filled.Email, contentDescription = null, tint = ItaSuperPrimary)
+                Icon(painter = painterResource(Res.drawable.ic_ita_mail), contentDescription = null, tint = ItaSuperPrimary)
             },
             singleLine = true,
             keyboardOptions = KeyboardOptions(
@@ -593,12 +586,12 @@ private fun LoginForm(
             label = { Text("Senha") },
             placeholder = { Text("Mínimo 6 caracteres") },
             leadingIcon = {
-                Icon(Icons.Filled.Lock, contentDescription = null, tint = ItaSuperPrimary)
+                Icon(painter = painterResource(Res.drawable.ic_ita_lock), contentDescription = null, tint = ItaSuperPrimary)
             },
             trailingIcon = {
                 IconButton(onClick = authState::toggleLoginPasswordVisibility) {
                     Icon(
-                        imageVector = if (uiState.isLoginPasswordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                        painter = painterResource(if (uiState.isLoginPasswordVisible) Res.drawable.ic_ita_eye else Res.drawable.ic_ita_eye_off),
                         contentDescription = "Alternar visibilidade da senha"
                     )
                 }
@@ -679,7 +672,7 @@ private fun LoginForm(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Filled.CheckCircle,
+                painter = painterResource(Res.drawable.ic_ita_check_circle),
                 contentDescription = null,
                 tint = ItaSuperPrimary,
                 modifier = Modifier.size(17.dp)
@@ -713,7 +706,7 @@ private fun RegisterForm(
             onValueChange = authState::onRegNameChange,
             label = { Text("Nome completo *") },
             placeholder = { Text("Ex: Maria Silva") },
-            leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null, tint = ItaSuperPrimary) },
+            leadingIcon = { Icon(painter = painterResource(Res.drawable.ic_ita_profile), contentDescription = null, tint = ItaSuperPrimary) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Next),
             modifier = Modifier
@@ -730,7 +723,7 @@ private fun RegisterForm(
             onValueChange = authState::onRegCpfCnpjChange,
             label = { Text("CPF ou CNPJ *") },
             placeholder = { Text("000.000.000-00") },
-            leadingIcon = { Icon(Icons.Filled.Badge, contentDescription = null, tint = ItaSuperPrimary) },
+            leadingIcon = { Icon(painter = painterResource(Res.drawable.ic_ita_id_card), contentDescription = null, tint = ItaSuperPrimary) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
             modifier = Modifier
@@ -747,7 +740,7 @@ private fun RegisterForm(
             onValueChange = authState::onRegWhatsappChange,
             label = { Text("WhatsApp com DDD *") },
             placeholder = { Text("(21) 99999-9999") },
-            leadingIcon = { Icon(Icons.Filled.Phone, contentDescription = null, tint = ItaSuperPrimary) },
+            leadingIcon = { Icon(painter = painterResource(Res.drawable.ic_ita_phone), contentDescription = null, tint = ItaSuperPrimary) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next),
             modifier = Modifier
@@ -764,11 +757,11 @@ private fun RegisterForm(
             onValueChange = authState::onRegPasswordChange,
             label = { Text("Senha *") },
             placeholder = { Text("Mínimo 6 caracteres") },
-            leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = null, tint = ItaSuperPrimary) },
+            leadingIcon = { Icon(painter = painterResource(Res.drawable.ic_ita_lock), contentDescription = null, tint = ItaSuperPrimary) },
             trailingIcon = {
                 IconButton(onClick = authState::toggleRegPasswordVisibility) {
                     Icon(
-                        imageVector = if (uiState.isRegPasswordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                        painter = painterResource(if (uiState.isRegPasswordVisible) Res.drawable.ic_ita_eye else Res.drawable.ic_ita_eye_off),
                         contentDescription = "Alternar visibilidade"
                     )
                 }
@@ -795,7 +788,7 @@ private fun RegisterForm(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Dialpad, contentDescription = null, tint = ItaSuperPrimary, modifier = Modifier.size(20.dp))
+                    Icon(painter = painterResource(Res.drawable.ic_ita_keypad), contentDescription = null, tint = ItaSuperPrimary, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "PIN de Entrega (4 dígitos)",
@@ -813,12 +806,12 @@ private fun RegisterForm(
                     onValueChange = authState::onRegPinChange,
                     label = { Text("PIN de entrega (4 dígitos) *") },
                     placeholder = { Text("Ex: 1234") },
-                    leadingIcon = { Icon(Icons.Filled.Key, contentDescription = null, tint = ItaSuperPrimary) },
+                    leadingIcon = { Icon(painter = painterResource(Res.drawable.ic_ita_key), contentDescription = null, tint = ItaSuperPrimary) },
                     visualTransformation = if (uiState.isRegPinVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     trailingIcon = {
                         IconButton(onClick = authState::toggleRegPinVisibility) {
                             Icon(
-                                imageVector = if (uiState.isRegPinVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                                painter = painterResource(if (uiState.isRegPinVisible) Res.drawable.ic_ita_eye else Res.drawable.ic_ita_eye_off),
                                 contentDescription = "Alternar visibilidade PIN"
                             )
                         }
@@ -839,7 +832,7 @@ private fun RegisterForm(
                     onValueChange = authState::onRegPinConfirmChange,
                     label = { Text("Confirme o PIN de entrega *") },
                     placeholder = { Text("Repita o PIN de 4 dígitos") },
-                    leadingIcon = { Icon(Icons.Filled.Check, contentDescription = null, tint = ItaSuperPrimary) },
+                    leadingIcon = { Icon(painter = painterResource(Res.drawable.ic_ita_check), contentDescription = null, tint = ItaSuperPrimary) },
                     visualTransformation = if (uiState.isRegPinVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
@@ -856,7 +849,7 @@ private fun RegisterForm(
                     val isMatch = uiState.regPin == uiState.regPinConfirm
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = if (isMatch) Icons.Filled.CheckCircle else Icons.Filled.Warning,
+                            painter = painterResource(if (isMatch) Res.drawable.ic_ita_check_circle else Res.drawable.ic_ita_alert),
                             contentDescription = null,
                             tint = if (isMatch) ItaSuperSuccess else ItaSuperError,
                             modifier = Modifier.size(16.dp)
@@ -1008,7 +1001,7 @@ private fun ErrorBanner(message: String) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Filled.Warning,
+                painter = painterResource(Res.drawable.ic_ita_alert),
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.error
             )
@@ -1050,7 +1043,7 @@ private fun ForgotPasswordDialog(
                     value = email,
                     onValueChange = onEmailChange,
                     label = { Text("E-mail para recuperação") },
-                    leadingIcon = { Icon(Icons.Filled.Email, contentDescription = null, tint = ItaSuperPrimary) },
+                    leadingIcon = { Icon(painter = painterResource(Res.drawable.ic_ita_mail), contentDescription = null, tint = ItaSuperPrimary) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                     modifier = Modifier

@@ -32,6 +32,8 @@ kotlin {
             implementation(libs.kotlinx.datetime)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.compose.material.icons.extended)
+            // fase-recursos: drawables/fontes via composeResources (Res.drawable/Res.font).
+            implementation(compose.components.resources)
             // Fase 5 item 3: armazenamento chave-valor multiplataforma.
             implementation(libs.multiplatform.settings)
             implementation(libs.multiplatform.settings.no.arg)

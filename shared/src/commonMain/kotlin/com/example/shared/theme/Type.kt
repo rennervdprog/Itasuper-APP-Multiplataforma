@@ -5,10 +5,24 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import com.example.shared.generated.resources.Res
+import com.example.shared.generated.resources.manrope_bold
+import com.example.shared.generated.resources.manrope_extrabold
+import com.example.shared.generated.resources.manrope_medium
+import com.example.shared.generated.resources.manrope_regular
+import com.example.shared.generated.resources.manrope_semibold
+import org.jetbrains.compose.resources.Font
 
-// Nota: fontes Manrope embarcadas são específicas de cada plataforma.
-// No shared usamos Default; cada app (android/ios) pode sobrescrever via expect/actual se necessário.
-val ManropeFontFamily: FontFamily = FontFamily.Default
+// Manrope embarcada via composeResources — mesma métrica visual do app Android
+// original (que usa R.font.manrope_*), sem depender de provedor remoto.
+// Sora não é usada de fato no tema original (SoraFontFamily = ManropeFontFamily).
+val ManropeFontFamily: FontFamily = FontFamily(
+    Font(Res.font.manrope_regular, FontWeight.Normal),
+    Font(Res.font.manrope_medium, FontWeight.Medium),
+    Font(Res.font.manrope_semibold, FontWeight.SemiBold),
+    Font(Res.font.manrope_bold, FontWeight.Bold),
+    Font(Res.font.manrope_extrabold, FontWeight.ExtraBold)
+)
 val SoraFontFamily: FontFamily = ManropeFontFamily
 
 val Typography = Typography(
