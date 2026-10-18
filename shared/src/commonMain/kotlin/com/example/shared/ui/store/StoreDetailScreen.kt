@@ -82,6 +82,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.example.shared.model.MenuSection
 import com.example.shared.model.Product
+import com.example.shared.model.SelectedAddonItem
 import com.example.shared.model.Store
 import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ItaSuperSecondary
@@ -89,6 +90,7 @@ import com.example.shared.theme.ItaSuperTextPrimary
 import com.example.shared.theme.ItaSuperWarning
 import com.example.shared.ui.cart.CartHolder
 import com.example.shared.ui.cart.formatBRL
+import com.example.shared.ui.common.StoreSwitchBottomSheet
 import com.example.shared.ui.mock.findMockStore
 import com.example.shared.ui.mock.mockMenuSections
 import com.example.shared.ui.mock.mockStoreProducts
@@ -111,6 +113,17 @@ private fun todayDowSun0(): Int {
     return (dow.ordinal + 1) % 7
 }
 
+/**
+ * Item aguardando confirmação do StoreSwitchBottomSheet (espelha
+ * uiState.pendingStoreSwitch do StoreDetailViewModel do app Android).
+ */
+private data class PendingAdd(
+    val product: Product,
+    val quantity: Int,
+    val notes: String,
+    val addons: List<SelectedAddonItem>
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StoreDetailScreen(
@@ -129,6 +142,37 @@ fun StoreDetailScreen(
     var modalNotes by remember { mutableStateOf("") }
     var isFavorite by remember { mutableStateOf(false) }
     var showBuilder by remember { mutableStateOf<String?>(null) }
+
+    // Confirmação de troca de loja (espelha pendingStoreSwitch do original):
+    // se a sacola tem itens de outra loja, o StoreSwitchBottomSheet pede
+    // confirmação antes de esvaziar, em vez do auto-clear silencioso.
+    var pendingAdd by remember(storeId) { mutableStateOf<PendingAdd?>(null) }
+    var showStoreSwitch by remember(storeId) { mutableStateOf(false) }
+
+    fun requestAdd(
+        product: Product,
+        quantity: Int = 1,
+        notes: String = "",
+        addons: List<SelectedAddonItem> = emptyList()
+    ) {
+        if (cart.isSwitchingStore(product)) {
+            pendingAdd = PendingAdd(
+                product = product,
+                quantity = quantity,
+                notes = notes,
+                addons = addons
+            )
+            showStoreSwitch = true
+        } else {
+            cart.addProduct(
+                product,
+                quantity = quantity,
+                notes = notes,
+                addons = addons,
+                storeName = store.name
+            )
+        }
+    }
 
     val menuListState = rememberLazyListState()
     val menuScrollScope = rememberCoroutineScope()
@@ -388,7 +432,7 @@ fun StoreDetailScreen(
                                             modalNotes = ""
                                         },
                                         onAddClick = {
-                                            cart.addProduct(product, storeName = store.name)
+                                            requestAdd(product)
                                         },
                                         modifier = Modifier.weight(1f)
                                     )
@@ -464,7 +508,7 @@ fun StoreDetailScreen(
                                     modalNotes = ""
                                 },
                                 onAddClick = {
-                                    cart.addProduct(product, storeName = store.name)
+                                    requestAdd(product)
                                 }
                             )
                         }
@@ -515,7 +559,7 @@ fun StoreDetailScreen(
                 onQuantityDecrement = { if (modalQuantity > 1) modalQuantity-- },
                 onNotesChange = { modalNotes = it },
                 onAddToCartClick = {
-                    cart.addProduct(product, quantity = modalQuantity, notes = modalNotes, storeName = store.name)
+                    requestAdd(product, quantity = modalQuantity, notes = modalNotes)
                     selectedProduct = null
                 }
             )
@@ -535,8 +579,36 @@ fun StoreDetailScreen(
                 type = type,
                 store = store,
                 products = products,
-                cart = cart,
+                onRequestAdd = { product, quantity, notes ->
+                    requestAdd(product, quantity = quantity, notes = notes)
+                },
                 onClose = { showBuilder = null }
+            )
+        }
+    }
+
+    // Bottom sheet estilo iFood: confirma esvaziar a sacola ao trocar de loja
+    // (espelha uiState.pendingStoreSwitch do original).
+    if (showStoreSwitch) {
+        pendingAdd?.let { pending ->
+            StoreSwitchBottomSheet(
+                currentStoreName = cart.storeName,
+                onConfirm = {
+                    cart.clearCart()
+                    cart.addProduct(
+                        pending.product,
+                        quantity = pending.quantity,
+                        notes = pending.notes,
+                        addons = pending.addons,
+                        storeName = store.name
+                    )
+                    pendingAdd = null
+                    showStoreSwitch = false
+                },
+                onDismiss = {
+                    pendingAdd = null
+                    showStoreSwitch = false
+                }
             )
         }
     }
@@ -1432,7 +1504,7 @@ private fun SimpleBuilderSheetContent(
     type: String,
     store: Store,
     products: List<Product>,
-    cart: CartHolder,
+    onRequestAdd: (product: Product, quantity: Int, notes: String) -> Unit,
     onClose: () -> Unit
 ) {
     val flavors = remember(products, type) {
@@ -1571,11 +1643,10 @@ private fun SimpleBuilderSheetContent(
                     if (first != null) {
                         val flavorNames = flavors.filter { it.id in selectedIds }.joinToString(" + ") { it.name }
                         val desc = if (flavorNames.isNotBlank()) "$title: $flavorNames" else title
-                        cart.addProduct(
+                        onRequestAdd(
                             first.copy(price = basePrice, name = desc),
-                            quantity = quantity,
-                            notes = notes,
-                            storeName = store.name
+                            quantity,
+                            notes
                         )
                     }
                     onClose()
@@ -1600,3 +1671,4 @@ private fun SimpleBuilderSheetContent(
         Spacer(modifier = Modifier.height(24.dp))
     }
 }
+
