@@ -55,6 +55,26 @@ data class PastelBorder(
     val sortOrder: Int = 0
 )
 
+/** Borda da pizza (tabela pizza_borders) — mesma estrutura da web. */
+data class PizzaBorder(
+    val id: String,
+    val storeId: String,
+    val name: String,
+    val price: Double = 0.0,
+    val isAvailable: Boolean = true,
+    val sortOrder: Int = 0
+)
+
+/** Grupo de adicionais do montador com seus itens (product_addon_groups + join). */
+data class PizzaAddonGroup(
+    val id: String,
+    val name: String,
+    val minSelect: Int = 0,
+    val maxSelect: Int = 99,
+    val priceReplacesBase: Boolean = false,
+    val items: List<AddonItem> = emptyList()
+)
+
 data class PizzaLegacySize(
     val name: String,
     val price: Double
