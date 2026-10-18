@@ -73,6 +73,7 @@ import com.example.shared.theme.ItaSuperBorder
 import com.example.shared.theme.ItaSuperHighlightBg
 import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ItaSuperTextSecondary
+import com.example.shared.ui.home.SupportBottomSheet
 import com.example.shared.ui.mock.mockUserSession
 
 private const val SECTION_PERSONAL = "personal"
@@ -110,6 +111,8 @@ fun ProfileScreen(onLogout: () -> Unit = {}) {
     var showPinDialog by remember { mutableStateOf(false) }
     var showLogoutConfirmation by remember { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
+    // ITEM 4/6: bottom sheet de suporte (migração 1:1 de SupportBottomSheet).
+    var showSupportSheet by remember { mutableStateOf(false) }
     var feedback by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(session.name, session.cpfCnpj) {
@@ -316,6 +319,11 @@ fun ProfileScreen(onLogout: () -> Unit = {}) {
         )
     }
 
+    // ITEM 4/6: bottom sheet de suporte (migração 1:1 do original).
+    if (showSupportSheet) {
+        SupportBottomSheet(onDismiss = { showSupportSheet = false })
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -367,9 +375,8 @@ fun ProfileScreen(onLogout: () -> Unit = {}) {
                 SectionCaption("Acesso rápido")
                 QuickActionGrid(
                     onOrders = { /* TODO(fase-rede): navegar para "pedidos" */ },
-                    onSupport = {
-                        openWhatsApp("Olá! Sou $displayName (${session.email}) e preciso de ajuda no ItaSuper.")
-                    }
+                    // ITEM 4/6: ação rápida "Suporte" abre o SupportBottomSheet.
+                    onSupport = { showSupportSheet = true }
                 )
 
                 SectionCaption("Minha conta")
@@ -507,7 +514,8 @@ fun ProfileScreen(onLogout: () -> Unit = {}) {
                         icon = Icons.Filled.HeadsetMic,
                         title = "Falar com o suporte",
                         subtitle = "WhatsApp — resposta em minutos",
-                        onClick = { openWhatsApp("Olá! Sou $displayName (${session.email}) e preciso de ajuda no ItaSuper.") }
+                        // ITEM 4/6: abre o SupportBottomSheet (migração 1:1 do original).
+                        onClick = { showSupportSheet = true }
                     )
                     ProfileDivider()
                     ProfileMenuRow(
