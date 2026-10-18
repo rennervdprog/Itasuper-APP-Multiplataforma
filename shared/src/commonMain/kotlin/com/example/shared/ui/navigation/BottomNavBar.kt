@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -53,7 +54,9 @@ fun ItaSuperBottomNavBar(
     onNavigate: (AppScreen) -> Unit
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        // Com edge-to-edge ativo, a navigation bar do sistema e transparente:
+        // este padding impede que a barra do app fique sob os botoes do sistema.
+        modifier = Modifier.fillMaxWidth().navigationBarsPadding(),
         color = ItaSuperBackground,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
