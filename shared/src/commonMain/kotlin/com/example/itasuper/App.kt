@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -20,7 +21,10 @@ import com.example.shared.ui.cart.CheckoutScreen
 import com.example.shared.ui.cart.OrderSuccessScreen
 import com.example.shared.ui.cart.rememberCartState
 import com.example.shared.ui.home.HomeScreen
+import com.example.shared.ui.legal.LegalConsentGate
+import com.example.shared.ui.legal.rememberLegalConsentState
 import com.example.shared.ui.mock.findMockStore
+import com.example.shared.ui.mock.mockUserSession
 import com.example.shared.ui.notifications.NotificationsScreen
 import com.example.shared.ui.orders.DeliveryTrackingScreen
 import com.example.shared.ui.orders.OrdersScreen
@@ -49,6 +53,15 @@ fun App() {
     val cartState = rememberCartState()
     // TODO(fase-rede): trocar pelo estado real da sessão (UserSessionRepository).
     var isLoggedIn by remember { mutableStateOf(false) }
+    // ITEM 5/6 — gate de aceite dos Termos/Privacidade (espelha o MainActivity do
+    // app Android): após o login, verifica mudanças legais pendentes no backend e
+    // prende a tela quando o aceite é obrigatório (modo binding).
+    val legalConsentState = rememberLegalConsentState()
+    val legalSession = remember(isLoggedIn) { if (isLoggedIn) mockUserSession() else null }
+    LaunchedEffect(legalSession) {
+        val session = legalSession ?: return@LaunchedEffect
+        legalConsentState.checkForUpdates(session)
+    }
     ItaSuperTheme {
         if (!isLoggedIn) {
             AuthScreen(
@@ -151,6 +164,19 @@ fun App() {
                         }
                     }
                 }
+            }
+            // ITEM 5/6 — overlay do gate legal (só renderiza quando há aceite
+            // pendente; espelha o LegalConsentGate do MainActivity do Android).
+            val gateSession = legalSession
+            if (gateSession != null) {
+                LegalConsentGate(
+                    session = gateSession,
+                    state = legalConsentState,
+                    onNavigateToProfile = {
+                        legalConsentState.setRefusalPanelVisible(false)
+                        navigator.navigateTo(AppScreen.PROFILE)
+                    }
+                )
             }
         }
     }
