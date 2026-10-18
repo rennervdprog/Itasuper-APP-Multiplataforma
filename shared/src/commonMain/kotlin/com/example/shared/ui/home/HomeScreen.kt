@@ -105,6 +105,7 @@ import com.example.shared.ui.mock.mockProducts
 import com.example.shared.ui.mock.mockStores
 import com.example.shared.ui.mock.mockUserSession
 import kotlinx.datetime.Clock
+import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlin.math.round
@@ -2807,7 +2808,15 @@ private fun HomeStoreSortControl(
 private fun nextStoreOpeningLabel(store: Store): String {
     if (store.isOpen || store.openingHours.isEmpty()) return ""
     val now = Clock.System.now().toLocalDateTime(TimeZone.of("America/Sao_Paulo"))
-    val today = now.dayOfWeek.isoDayNumber % 7
+    val today = when (now.dayOfWeek) {
+        DayOfWeek.MONDAY -> 1
+        DayOfWeek.TUESDAY -> 2
+        DayOfWeek.WEDNESDAY -> 3
+        DayOfWeek.THURSDAY -> 4
+        DayOfWeek.FRIDAY -> 5
+        DayOfWeek.SATURDAY -> 6
+        DayOfWeek.SUNDAY -> 0
+    }
     val currentMinutes = now.hour * 60 + now.minute
 
     fun startMinutes(value: String): Int? {
