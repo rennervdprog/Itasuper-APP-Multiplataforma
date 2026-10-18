@@ -5,6 +5,9 @@ import com.example.shared.model.LegalAcceptanceResult
 import com.example.shared.model.LegalChange
 import com.example.shared.model.Order
 import com.example.shared.model.PendingLegalChanges
+import com.example.shared.model.AddonItem
+import com.example.shared.model.PizzaAddonGroup
+import com.example.shared.model.PizzaBorder
 import com.example.shared.model.PizzaSizeCatalogItem
 import com.example.shared.model.Product
 import com.example.shared.model.PizzaLegacySize
@@ -1227,4 +1230,116 @@ object SupabaseApi {
         body.contains("42703") ||
             body.contains("PGRST204") ||
             (body.contains("Could not find the", ignoreCase = true) && body.contains("column", ignoreCase = true))
+
+    // ------------------------------------------------------------------
+    // Montador de pizza/pastel — bordas e adicionais (espelha a web)
+    // ------------------------------------------------------------------
+
+    /** Bordas da pizza (tabela pizza_borders). */
+    suspend fun fetchPizzaBorders(storeId: String): List<PizzaBorder> {
+        val (ok, text) = restGetRaw(
+            "$SUPABASE_URL/rest/v1/pizza_borders?store_id=eq.$storeId&is_available=eq.true&order=sort_order.asc"
+        )
+        if (!ok || text.isBlank()) return emptyList()
+        return try {
+            parseArray(text).mapNotNull { element ->
+                val item = element.jsonObject
+                val id = item.optString("id")
+                if (id.isBlank()) return@mapNotNull null
+                PizzaBorder(
+                    id = id,
+                    storeId = storeId,
+                    name = item.optString("name"),
+                    price = item.optDouble("price", 0.0),
+                    isAvailable = item.optBoolean("is_available", true),
+                    sortOrder = item.optInt("sort_order", 0)
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Complementos do pastel (tabela pastel_borders). */
+    suspend fun fetchPastelBorders(storeId: String): List<PizzaBorder> {
+        val (ok, text) = restGetRaw(
+            "$SUPABASE_URL/rest/v1/pastel_borders?store_id=eq.$storeId&is_available=eq.true&order=sort_order.asc"
+        )
+        if (!ok || text.isBlank()) return emptyList()
+        return try {
+            parseArray(text).mapNotNull { element ->
+                val item = element.jsonObject
+                val id = item.optString("id")
+                if (id.isBlank()) return@mapNotNull null
+                PizzaBorder(
+                    id = id,
+                    storeId = storeId,
+                    name = item.optString("name"),
+                    price = item.optDouble("price", 0.0),
+                    isAvailable = item.optBoolean("is_available", true),
+                    sortOrder = item.optInt("sort_order", 0)
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    /**
+     * Grupos de adicionais ligados aos sabores escolhidos.
+     * Deduplica por grupo (um sabor pode repetir o mesmo grupo).
+     */
+    suspend fun fetchFlavorAddonGroups(flavorIds: List<String>): List<PizzaAddonGroup> {
+        if (flavorIds.isEmpty()) return emptyList()
+        val idsParam = flavorIds.joinToString(",")
+        val (ok, text) = restGetRaw(
+            "$SUPABASE_URL/rest/v1/product_addon_groups" +
+                "?product_id=in.($idsParam)" +
+                "&select=addon_group:addon_groups(id,name,min_select,max_select,price_replaces_base,addon_items(id,name,price))"
+        )
+        if (!ok || text.isBlank()) return emptyList()
+        return try {
+            val seen = mutableSetOf<String>()
+            val result = mutableListOf<PizzaAddonGroup>()
+            for (element in parseArray(text)) {
+                val row = element.jsonObject
+                val groupObj = row["addon_group"]?.jsonObject ?: continue
+                val groupId = groupObj.optString("id")
+                if (groupId.isBlank() || !seen.add(groupId)) continue
+                val items = mutableListOf<AddonItem>()
+                try {
+                    val itemsArray = groupObj["addon_items"]?.jsonArray
+                    itemsArray?.forEach { itemEl ->
+                        val itemObj = itemEl.jsonObject
+                        val itemId = itemObj.optString("id")
+                        if (itemId.isNotBlank()) {
+                            items.add(
+                                AddonItem(
+                                    id = itemId,
+                                    groupId = groupId,
+                                    name = itemObj.optString("name"),
+                                    price = itemObj.optDouble("price", 0.0)
+                                )
+                            )
+                        }
+                    }
+                } catch (_: Exception) {
+                }
+                items.sortBy { it.name }
+                result.add(
+                    PizzaAddonGroup(
+                        id = groupId,
+                        name = groupObj.optString("name"),
+                        minSelect = groupObj.optInt("min_select", 0),
+                        maxSelect = groupObj.optInt("max_select", 99).takeIf { it > 0 } ?: 99,
+                        priceReplacesBase = groupObj.optBoolean("price_replaces_base", false),
+                        items = items
+                    )
+                )
+            }
+            result
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
 }
