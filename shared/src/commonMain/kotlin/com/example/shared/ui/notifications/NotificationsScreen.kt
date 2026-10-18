@@ -599,10 +599,12 @@ private fun groupNotificationsByDate(
     notifications: List<ClientNotification>
 ): List<Pair<NotificationDateGroup, List<ClientNotification>>> {
     val now = Clock.System.now().toEpochMilliseconds()
-    return notifications
-        .groupBy { dateGroupOf(it, now) }
-        .toSortedMap(compareBy { it.ordinal })
-        .map { (group, items) -> group to items }
+    val grouped = notifications.groupBy { dateGroupOf(it, now) }
+    // Ordem fixa do enum (TODAY, YESTERDAY, THIS_WEEK, OLDER) — sem toSortedMap,
+    // que o compilador iOS (Kotlin/Native) não resolve neste contexto.
+    return NotificationDateGroup.values()
+        .filter { grouped.containsKey(it) }
+        .map { it to grouped.getValue(it) }
 }
 
 private fun formatNotificationDate(value: String): String {
