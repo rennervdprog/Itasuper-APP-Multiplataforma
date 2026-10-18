@@ -55,17 +55,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.shared.generated.resources.Res
+import com.example.shared.generated.resources.ic_perfil_compartilhar_3d
+import com.example.shared.generated.resources.ic_perfil_dados_3d
+import com.example.shared.generated.resources.ic_perfil_endereco_3d
+import com.example.shared.generated.resources.ic_perfil_excluir_3d
+import com.example.shared.generated.resources.ic_perfil_pedidos_3d
+import com.example.shared.generated.resources.ic_perfil_pin_3d
+import com.example.shared.generated.resources.ic_perfil_privacidade_3d
+import com.example.shared.generated.resources.ic_perfil_reportar_3d
+import com.example.shared.generated.resources.ic_perfil_sair_3d
+import com.example.shared.generated.resources.ic_perfil_suporte_3d
+import com.example.shared.generated.resources.ic_perfil_termos_3d
 import com.example.shared.generated.resources.ic_ita_chevron_right
-import com.example.shared.generated.resources.ic_ita_info
-import com.example.shared.generated.resources.ic_ita_key
-import com.example.shared.generated.resources.ic_ita_logout
-import com.example.shared.generated.resources.ic_ita_pin
-import com.example.shared.generated.resources.ic_ita_profile
 import com.example.shared.generated.resources.ic_ita_search
-import com.example.shared.generated.resources.ic_ita_share
-import com.example.shared.generated.resources.ic_ita_support
-import com.example.shared.generated.resources.ic_ita_trash
-import com.example.shared.generated.resources.ic_ita_bag
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
 import com.example.shared.model.LegalDocumentLinks
@@ -383,7 +385,7 @@ fun ProfileScreen(onLogout: () -> Unit = {}) {
                 SectionCaption("Minha conta")
                 MenuCard {
                     AccountSectionCard(
-                        icon = Res.drawable.ic_ita_profile,
+                        icon = Res.drawable.ic_perfil_dados_3d,
                         title = "Dados pessoais",
                         subtitle = "Nome, CPF e e-mail",
                         expanded = expandedSection == SECTION_PERSONAL,
@@ -417,7 +419,7 @@ fun ProfileScreen(onLogout: () -> Unit = {}) {
                     ProfileDivider()
 
                     AccountSectionCard(
-                        icon = Res.drawable.ic_ita_pin,
+                        icon = Res.drawable.ic_perfil_endereco_3d,
                         title = "Endereço de entrega",
                         subtitle = "Rua, número e localização",
                         expanded = expandedSection == SECTION_ADDRESS,
@@ -512,7 +514,7 @@ fun ProfileScreen(onLogout: () -> Unit = {}) {
                 SectionCaption("Ajuda e suporte")
                 MenuCard {
                     ProfileMenuRow(
-                        icon = Res.drawable.ic_ita_support,
+                        icon = Res.drawable.ic_perfil_suporte_3d,
                         title = "Falar com o suporte",
                         subtitle = "WhatsApp — resposta em minutos",
                         // ITEM 4/6: abre o SupportBottomSheet (migração 1:1 do original).
@@ -520,7 +522,7 @@ fun ProfileScreen(onLogout: () -> Unit = {}) {
                     )
                     ProfileDivider()
                     ProfileMenuRow(
-                        icon = Res.drawable.ic_ita_info,
+                        icon = Res.drawable.ic_perfil_reportar_3d,
                         title = "Reportar um problema",
                         subtitle = "Envie um relato ao suporte",
                         onClick = {
@@ -532,21 +534,21 @@ fun ProfileScreen(onLogout: () -> Unit = {}) {
                 SectionCaption("Sobre o ItaSuper")
                 MenuCard {
                     ProfileMenuRow(
-                        icon = Res.drawable.ic_ita_info,
+                        icon = Res.drawable.ic_perfil_termos_3d,
                         title = "Termos de Uso",
                         subtitle = "Leia os termos oficiais do ItaSuper",
                         onClick = { openLegalDocument(LegalDocumentLinks.TERMS_URL) }
                     )
                     ProfileDivider()
                     ProfileMenuRow(
-                        icon = Res.drawable.ic_ita_info,
+                        icon = Res.drawable.ic_perfil_privacidade_3d,
                         title = "Política de Privacidade",
                         subtitle = "Veja como seus dados são tratados",
                         onClick = { openLegalDocument(LegalDocumentLinks.PRIVACY_URL) }
                     )
                     ProfileDivider()
                     ProfileMenuRow(
-                        icon = Res.drawable.ic_ita_share,
+                        icon = Res.drawable.ic_perfil_compartilhar_3d,
                         title = "Compartilhar o app",
                         subtitle = "Convide amigos para usar o ItaSuper",
                         onClick = { shareApp() }
@@ -556,7 +558,7 @@ fun ProfileScreen(onLogout: () -> Unit = {}) {
                 SectionCaption("Conta")
                 MenuCard {
                     ProfileMenuRow(
-                        icon = Res.drawable.ic_ita_logout,
+                        icon = Res.drawable.ic_perfil_sair_3d,
                         title = "Sair da conta",
                         subtitle = "Encerrar esta sessão neste aparelho",
                         onClick = { showLogoutConfirmation = true },
@@ -564,7 +566,7 @@ fun ProfileScreen(onLogout: () -> Unit = {}) {
                     )
                     ProfileDivider()
                     ProfileMenuRow(
-                        icon = Res.drawable.ic_ita_trash,
+                        icon = Res.drawable.ic_perfil_excluir_3d,
                         title = "Excluir minha conta",
                         subtitle = "Remover sua conta do ItaSuper",
                         onClick = { showDeleteConfirmation = true },
@@ -689,8 +691,8 @@ private fun SectionCaption(title: String) {
 @Composable
 private fun QuickActionGrid(onOrders: () -> Unit, onSupport: () -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-        QuickAction(Modifier.weight(1f), Res.drawable.ic_ita_bag, "Meus pedidos", "", onOrders)
-        QuickAction(Modifier.weight(1f), Res.drawable.ic_ita_support, "Suporte", "", onSupport)
+        QuickAction(Modifier.weight(1f), Res.drawable.ic_perfil_pedidos_3d, "Meus pedidos", "", onOrders)
+        QuickAction(Modifier.weight(1f), Res.drawable.ic_perfil_suporte_3d, "Suporte", "", onSupport)
     }
 }
 
@@ -713,7 +715,7 @@ private fun QuickAction(
             modifier = Modifier.padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(painter = painterResource(icon), contentDescription = null, tint = ItaSuperPrimary, modifier = Modifier.size(32.dp))
+            Icon(painter = painterResource(icon), contentDescription = null, tint = Color.Unspecified, modifier = Modifier.size(32.dp))
             Spacer(Modifier.width(11.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(title, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -742,7 +744,7 @@ private fun AccountSectionCard(
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(painter = painterResource(icon), contentDescription = null, tint = ItaSuperPrimary, modifier = Modifier.size(32.dp))
+            Icon(painter = painterResource(icon), contentDescription = null, tint = Color.Unspecified, modifier = Modifier.size(32.dp))
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.bodyLarge)
@@ -788,7 +790,7 @@ private fun PinCard(hasPin: Boolean, onClick: () -> Unit) {
             .padding(horizontal = 16.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(painter = painterResource(Res.drawable.ic_ita_key), contentDescription = null, tint = ItaSuperPrimary, modifier = Modifier.size(32.dp))
+        Icon(painter = painterResource(Res.drawable.ic_perfil_pin_3d), contentDescription = null, tint = Color.Unspecified, modifier = Modifier.size(32.dp))
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text("PIN de entrega", fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.bodyLarge)
@@ -828,7 +830,7 @@ private fun ProfileMenuRow(
             .padding(horizontal = 16.dp, vertical = 15.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(painter = painterResource(icon), contentDescription = null, tint = if (destructive) Color(0xFFB83B36) else ItaSuperPrimary, modifier = Modifier.size(32.dp))
+        Icon(painter = painterResource(icon), contentDescription = null, tint = Color.Unspecified, modifier = Modifier.size(32.dp))
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(title, color = if (destructive) Color(0xFFB83B36) else Color(0xFF242424), fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.bodyLarge)
