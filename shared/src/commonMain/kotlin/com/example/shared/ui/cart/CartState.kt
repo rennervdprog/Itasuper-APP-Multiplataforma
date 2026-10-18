@@ -99,9 +99,18 @@ class CartHolder {
 
 
     /**
+     * Indica se adicionar este produto trocaria de loja (sacola com itens de
+     * outra loja) — a vitrine usa isso para exibir o StoreSwitchBottomSheet
+     * antes de esvaziar, em vez do auto-clear silencioso do addProduct.
+     */
+    fun isSwitchingStore(product: Product): Boolean =
+        items.isNotEmpty() && storeId != null && storeId != product.storeId
+
+    /**
      * Adiciona um produto na sacola (usado pela vitrine da loja).
-     * Se a sacola tem itens de outra loja, esvazia antes (simplificação
-     * do StoreSwitchBottomSheet do original; TODO(fase-rede): confirmar com o usuário).
+     * Se a sacola tem itens de outra loja, esvazia antes (comportamento de
+     * fallback; a vitrine pede confirmação via StoreSwitchBottomSheet usando
+     * isSwitchingStore; TODO(fase-rede): confirmar com o usuário).
      */
     fun addProduct(
         product: Product,
@@ -228,3 +237,4 @@ class CartHolder {
 
 @Composable
 fun rememberCartState(): CartHolder = remember { CartHolder() }
+
