@@ -1,6 +1,10 @@
 package com.example.shared.network
 
+import com.example.shared.model.LegalAcceptanceMode
+import com.example.shared.model.LegalAcceptanceResult
+import com.example.shared.model.LegalChange
 import com.example.shared.model.Order
+import com.example.shared.model.PendingLegalChanges
 import com.example.shared.model.PizzaSizeCatalogItem
 import com.example.shared.model.Product
 import com.example.shared.model.PizzaLegacySize
@@ -9,6 +13,7 @@ import com.example.shared.model.StoreOpeningHour
 import com.example.shared.model.StoreSettings
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -188,6 +193,27 @@ object SupabaseApi {
     ): Pair<Boolean, String> {
         return try {
             val response: HttpResponse = client.post(url) {
+                header("apikey", SUPABASE_ANON_KEY)
+                header("Authorization", "Bearer $bearer")
+                header("Accept", "application/json")
+                if (prefer != null) header("Prefer", prefer)
+                contentType(ContentType.Application.Json)
+                setBody(bodyJson)
+            }
+            response.status.isSuccess() to response.bodyAsText()
+        } catch (_: Exception) {
+            false to ""
+        }
+    }
+
+    private suspend fun restPatchRaw(
+        url: String,
+        bodyJson: String,
+        bearer: String = SUPABASE_ANON_KEY,
+        prefer: String? = null
+    ): Pair<Boolean, String> {
+        return try {
+            val response: HttpResponse = client.patch(url) {
                 header("apikey", SUPABASE_ANON_KEY)
                 header("Authorization", "Bearer $bearer")
                 header("Accept", "application/json")
@@ -1013,4 +1039,192 @@ object SupabaseApi {
             )
         }
     }
+
+    // ------------------------------------------------------------------
+    // (i) DOCUMENTOS LEGAIS — porte de SupabaseClient.fetchPendingLegalChanges
+    //     + recordLegalAcceptance do app Android. Usados pelo gate de aceite
+    //     (LegalConsentState, ITEM 5/6).
+    // ------------------------------------------------------------------
+
+    private const val LEGAL_AUDIENCE_CLIENT = "cliente"
+
+    /** Versões de Termos/Privacidade já aceitas no perfil (`profiles`). */
+    suspend fun fetchLegalAcceptedVersions(userId: String, accessToken: String): Pair<String?, String?> {
+        if (userId.isBlank() || accessToken.isBlank()) return null to null
+        val (ok, body) = restGetRaw(
+            "$SUPABASE_URL/rest/v1/profiles?select=terms_version_accepted,privacy_version_accepted&user_id=eq.$userId&limit=1",
+            bearer = accessToken
+        )
+        if (!ok || body.isBlank()) return null to null
+        val obj = parseArray(body).firstOrNull() as? JsonObject ?: return null to null
+        return obj.optNullableString("terms_version_accepted") to
+            obj.optNullableString("privacy_version_accepted")
+    }
+
+    /**
+     * Consulta o mesmo RPC utilizado pelo app Android. As versões não são fixadas no
+     * app: o backend informa qual documento mudou e quais versões exigem novo aceite.
+     */
+    suspend fun fetchPendingLegalChanges(
+        termsAccepted: String?,
+        privacyAccepted: String?,
+        accessToken: String? = null
+    ): PendingLegalChanges? {
+        // O público-alvo entrou na sobrecarga de três argumentos da v6.6. Sem ele o cliente
+        // recebe também mudanças de lojista e motoboy, e a que o afeta fica soterrada.
+        // Só um banco sem a sobrecarga (42883) justifica repetir na assinatura antiga:
+        // falha de rede ou RLS não deve virar uma segunda requisição.
+        return when (val result = requestPendingLegalChanges(termsAccepted, privacyAccepted, accessToken, LEGAL_AUDIENCE_CLIENT)) {
+            is LegalChangesResponse.Unsupported ->
+                (requestPendingLegalChanges(termsAccepted, privacyAccepted, accessToken, audience = null)
+                    as? LegalChangesResponse.Success)?.value
+            is LegalChangesResponse.Success -> result.value
+            is LegalChangesResponse.Failed -> null
+        }
+    }
+
+    /** Distingue "o banco não tem a sobrecarga" de "a consulta falhou". */
+    private sealed interface LegalChangesResponse {
+        data class Success(val value: PendingLegalChanges) : LegalChangesResponse
+        data object Unsupported : LegalChangesResponse
+        data object Failed : LegalChangesResponse
+    }
+
+    private suspend fun requestPendingLegalChanges(
+        termsAccepted: String?,
+        privacyAccepted: String?,
+        accessToken: String?,
+        audience: String?
+    ): LegalChangesResponse {
+        val requestBody = buildJsonObject {
+            putStr("_terms_accepted", termsAccepted?.ifBlank { "0" } ?: "0")
+            putStr("_privacy_accepted", privacyAccepted?.ifBlank { "0" } ?: "0")
+            if (audience != null) putStr("_audience", audience)
+        }.toString()
+        val bearer = accessToken?.takeIf { it.isNotBlank() } ?: SUPABASE_ANON_KEY
+        val (ok, body) = restPostRaw(
+            "$SUPABASE_URL/rest/v1/rpc/get_pending_legal_changes",
+            requestBody,
+            bearer = bearer
+        )
+        if (!ok || body.isBlank()) {
+            // restPostRaw não expõe o código HTTP; a distinção é só pelos marcadores
+            // no corpo (o PostgREST devolve 404 + PGRST202 quando falta a sobrecarga).
+            if (audience != null && isMissingFunctionError(body)) return LegalChangesResponse.Unsupported
+            return LegalChangesResponse.Failed
+        }
+        val result = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull()
+            ?: return LegalChangesResponse.Failed
+        val pending = PendingLegalChanges(
+            needsTerms = result.optBoolean("needs_terms", false),
+            needsPrivacy = result.optBoolean("needs_privacy", false),
+            currentTermsVersion = result.optString("current_terms_version"),
+            currentPrivacyVersion = result.optString("current_privacy_version"),
+            termsChanges = parseLegalChanges(result.optJsonArray("terms_changes")),
+            privacyChanges = parseLegalChanges(result.optJsonArray("privacy_changes")),
+            // Campo ausente (banco anterior à v6.6) significa binding, nunca notice.
+            mode = LegalAcceptanceMode.fromRemote(result.optNullableString("mode")),
+            termsEffectiveDate = result.optNullableString("terms_effective_date"),
+            privacyEffectiveDate = result.optNullableString("privacy_effective_date"),
+            daysUntilEffective = (result["days_until_effective"] as? JsonPrimitive)?.intOrNull
+        )
+        return LegalChangesResponse.Success(pending)
+    }
+
+    private fun parseLegalChanges(array: JsonArray?): List<LegalChange> {
+        if (array == null) return emptyList()
+        return array.mapNotNull { item ->
+            val obj = item as? JsonObject ?: return@mapNotNull null
+            LegalChange(
+                version = obj.optString("version"),
+                effectiveDate = obj.optString("effective_date"),
+                section = obj.optString("section"),
+                changeType = obj.optString("change_type"),
+                summary = obj.optString("summary"),
+                legalBasis = obj.optNullableString("legal_basis")
+            )
+        }
+    }
+
+    /** Registra o aceite auditável e atualiza as versões no perfil, como no Android. */
+    suspend fun recordLegalAcceptance(
+        userId: String,
+        accessToken: String,
+        termsVersion: String,
+        privacyVersion: String,
+        acceptanceMode: LegalAcceptanceMode = LegalAcceptanceMode.BINDING
+    ): LegalAcceptanceResult {
+        if (userId.isBlank() || accessToken.isBlank() || termsVersion.isBlank() || privacyVersion.isBlank()) {
+            return LegalAcceptanceResult(false, "Não foi possível identificar os documentos para aceite.")
+        }
+        // Instant ISO-8601 UTC ("2026-10-18T06:05:12.345Z"), como o SimpleDateFormat do Android.
+        val acceptedAt = Clock.System.now().toString()
+        fun acceptanceBody(includeMode: Boolean) = buildJsonObject {
+            putStr("user_id", userId)
+            putStr("terms_version", termsVersion)
+            putStr("privacy_version", privacyVersion)
+            putStr("user_agent", "ItaSuper KMP")
+            putStr("accepted_at", acceptedAt)
+            if (includeMode) putStr("acceptance_mode", acceptanceMode.remoteValue)
+        }.toString()
+
+        // A prova do consentimento não pode falhar por causa de uma coluna acessória:
+        // se acceptance_mode ainda não existe (42703 / PGRST204), grava sem ela.
+        val (firstOk, firstBody) = restPostRaw(
+            "$SUPABASE_URL/rest/v1/terms_acceptance",
+            acceptanceBody(includeMode = true),
+            bearer = accessToken,
+            prefer = "return=minimal"
+        )
+        if (!firstOk) {
+            if (!isMissingColumnError(firstBody)) {
+                return LegalAcceptanceResult(
+                    false,
+                    parseErrorMessage(firstBody, "Não foi possível registrar seu aceite.")
+                )
+            }
+            val (retryOk, retryBody) = restPostRaw(
+                "$SUPABASE_URL/rest/v1/terms_acceptance",
+                acceptanceBody(includeMode = false),
+                bearer = accessToken,
+                prefer = "return=minimal"
+            )
+            if (!retryOk) {
+                return LegalAcceptanceResult(
+                    false,
+                    parseErrorMessage(retryBody, "Não foi possível registrar seu aceite.")
+                )
+            }
+        }
+
+        val profileBody = buildJsonObject {
+            putStr("terms_version_accepted", termsVersion)
+            putStr("privacy_version_accepted", privacyVersion)
+            putStr("terms_accepted_at", acceptedAt)
+        }.toString()
+        val (profileOk, profileText) = restPatchRaw(
+            "$SUPABASE_URL/rest/v1/profiles?user_id=eq.$userId",
+            profileBody,
+            bearer = accessToken,
+            prefer = "return=minimal"
+        )
+        if (!profileOk) {
+            return LegalAcceptanceResult(
+                false,
+                parseErrorMessage(profileText, "O aceite foi registrado, mas não foi possível atualizar seu perfil.")
+            )
+        }
+        return LegalAcceptanceResult(true)
+    }
+
+    private fun isMissingFunctionError(body: String): Boolean =
+        body.contains("42883") ||
+            body.contains("PGRST202") ||
+            body.contains("Could not find the function", ignoreCase = true)
+
+    /** Coluna inexistente: 42703 no Postgres, PGRST204 no cache de schema do PostgREST. */
+    private fun isMissingColumnError(body: String): Boolean =
+        body.contains("42703") ||
+            body.contains("PGRST204") ||
+            (body.contains("Could not find the", ignoreCase = true) && body.contains("column", ignoreCase = true))
 }
