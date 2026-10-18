@@ -41,6 +41,8 @@ kotlin {
         }
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)
+            // ITEM 5/6: BackHandler do gate legal (LegalBackHandler.android).
+            implementation(libs.androidx.activity.compose)
             // Fase 5 item 1: push via Firebase Cloud Messaging (mesmo backend do app nativo).
             implementation(libs.firebase.messaging)
             // Fase 5 item 2: localização (FusedLocationProviderClient).
