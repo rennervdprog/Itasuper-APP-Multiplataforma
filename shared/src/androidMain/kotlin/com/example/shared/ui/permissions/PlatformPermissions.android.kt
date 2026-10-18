@@ -10,7 +10,7 @@ import androidx.compose.runtime.Composable
 
 /**
  * Actual Android de [PlatformPermissions] — mesma lógica do `PermissionUtils` e
- * dos launchers do app nativo (`ui/permissions/*`).
+ * dos launchers do app nativo (pacote ui.permissions do Itasuper-APP-NATIVO).
  *
  * Usa `Context.checkSelfPermission` (API 23+; minSdk do projeto é 24), sem
  * depender de androidx.core.
