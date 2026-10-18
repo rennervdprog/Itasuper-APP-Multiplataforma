@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -106,8 +107,11 @@ fun DeliveryTrackingScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
-            )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White),
+                // O Scaffold raiz do App() ja aplica o inset da status bar;
+                // deixar o default (systemBars) aqui duplicaria o espaco no topo.
+                windowInsets = WindowInsets(0, 0, 0, 0)
+)
         }
     ) { padding ->
         Column(
