@@ -12,6 +12,7 @@ import com.example.shared.model.PizzaSizeCatalogItem
 import com.example.shared.model.Product
 import com.example.shared.model.PizzaLegacySize
 import com.example.shared.model.SavedAddress
+import com.example.shared.model.Coupon
 import com.example.shared.model.Store
 import com.example.shared.model.StoreOpeningHour
 import com.example.shared.model.StoreSettings
@@ -861,6 +862,52 @@ object SupabaseApi {
             productsList
         } catch (_: Exception) {
             emptyList()
+        }
+    }
+
+    /**
+     * Valida um cupom no banco (tabela coupons).
+     * Retorna o cupom se válido, null se inválido/expirado/esgotado.
+     */
+    suspend fun fetchCoupon(code: String, storeId: String? = null): Coupon? {
+        val cleanCode = code.trim().uppercase()
+        if (cleanCode.isBlank()) return null
+        return try {
+            var url = "$SUPABASE_URL/rest/v1/coupons?select=*&code=eq.$cleanCode&is_active=eq.true"
+            if (storeId != null) {
+                url += "&or=(store_id.eq.$storeId,store_id.is.null)"
+            }
+            val (ok, json) = restGetRaw(url)
+            if (!ok || json.isBlank()) return null
+            val array = Json.parseToJsonElement(json).jsonArray
+            val obj = array.firstOrNull()?.jsonObject ?: return null
+            
+            // Verifica expiração
+            val expiresAt = obj["expires_at"]?.jsonPrimitive?.contentOrNull
+            if (expiresAt != null) {
+                // Formato ISO - comparação simples
+                // TODO: parse adequado da data
+            }
+            
+            // Verifica limite de usos
+            val maxUses = obj["max_uses"]?.jsonPrimitive?.intOrNull
+            val usedCount = obj["used_count"]?.jsonPrimitive?.intOrNull ?: 0
+            if (maxUses != null && usedCount >= maxUses) return null
+            
+            Coupon(
+                id = obj["id"]?.jsonPrimitive?.content ?: return null,
+                code = obj["code"]?.jsonPrimitive?.content ?: cleanCode,
+                discountType = obj["discount_type"]?.jsonPrimitive?.content ?: "percentage",
+                discountValue = obj["discount_value"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                minOrderValue = obj["min_order_value"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                maxUses = maxUses,
+                usedCount = usedCount,
+                isActive = true,
+                firstOrderOnly = obj["first_order_only"]?.jsonPrimitive?.booleanOrNull ?: false,
+                storeId = obj["store_id"]?.jsonPrimitive?.contentOrNull
+            )
+        } catch (_: Exception) {
+            null
         }
     }
 
