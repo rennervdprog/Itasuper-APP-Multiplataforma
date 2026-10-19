@@ -107,6 +107,7 @@ import com.example.shared.model.DiscoverProduct
 import com.example.shared.model.Order
 import com.example.shared.model.Store
 import com.example.shared.model.StoreWithCoupon
+import com.example.shared.model.sortedByRelevance
 import com.example.shared.network.SupabaseApi
 import com.example.shared.platform.LocationProvider
 import com.example.shared.theme.ItaSuperHighlightBg
@@ -256,9 +257,18 @@ private fun applyHomeStoreFilters(
     selectedCategory: String,
     freeFee: Boolean,
     directDelivery: Boolean,
-    sort: HomeStoreSort
+    sort: HomeStoreSort,
+    city: String = "",
+    userLat: Double? = null,
+    userLon: Double? = null
 ): List<Store> {
     var result = stores
+    // Filtro por cidade (se especificada)
+    if (city.isNotBlank()) {
+        result = result.filter { 
+            it.addressCity.equals(city, ignoreCase = true) || it.addressCity.isBlank()
+        }
+    }
     if (!selectedCategory.equals("todas", ignoreCase = true)) {
         val wanted = selectedCategory.normalizedAccents()
         result = result.filter { it.category.normalizedAccents().startsWith(wanted) }
@@ -266,7 +276,7 @@ private fun applyHomeStoreFilters(
     if (freeFee) result = result.filter { it.isFreeDelivery }
     if (directDelivery) result = result.filter { it.deliveryMode.equals("own", ignoreCase = true) }
     return when (sort) {
-        HomeStoreSort.RELEVANCE -> result
+        HomeStoreSort.RELEVANCE -> result.sortedByRelevance(userLat, userLon)
         HomeStoreSort.DISTANCE -> result.sortedBy { it.distanceKm ?: Double.MAX_VALUE }
         HomeStoreSort.DELIVERY_FEE -> result.sortedBy { deliveryFeeSortValue(it) }
         HomeStoreSort.NAME -> result.sortedBy { it.name.normalizedAccents() }
@@ -414,8 +424,8 @@ fun HomeScreen(
     val affordableProducts = remember { emptyList<DiscoverProduct>() }
     val repeatProducts = remember { emptyList<DiscoverProduct>() }
 
-    val visibleStores = remember(stores, selectedCategory, isFreeFeeActive, isDirectDeliveryActive, storeSort) {
-        applyHomeStoreFilters(stores, selectedCategory, isFreeFeeActive, isDirectDeliveryActive, storeSort)
+    val visibleStores = remember(stores, selectedCategory, isFreeFeeActive, isDirectDeliveryActive, storeSort, activeCity) {
+        applyHomeStoreFilters(stores, selectedCategory, isFreeFeeActive, isDirectDeliveryActive, storeSort, activeCity)
     }
     val hasActiveFilters = selectedCategory != "todas" || isFreeFeeActive || isDirectDeliveryActive
 
