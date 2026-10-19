@@ -1,28 +1,46 @@
-# Configuração do Supabase — app multiplataforma (Fase 4)
+# Configuração do Supabase — app multiplataforma
 
-A camada de rede real já está no código (`shared/.../network/SupabaseApi.kt`),
-mas os valores de URL e chave **não** estão commitados — o código hoje usa
-placeholders e as telas caem para os mocks quando a chamada falha.
+## Status: credenciais configuradas via CI ✅
 
-## Onde colocar os valores reais
+As credenciais estão configuradas como **GitHub Secrets** no repositório:
+- `SUPABASE_URL` = `https://qkjhguziuchqsbxzruea.supabase.co`
+- `SUPABASE_ANON_KEY` = (chave anon do projeto)
 
-| Plataforma | Arquivo | Como |
-|---|---|---|
-| Android | `shared/src/androidMain/kotlin/com/example/shared/network/SupabaseConfig.android.kt` | Trocar os placeholders, ou gerar via `BuildConfig` (recomendado: `local.properties` + secrets do CI, como no app cliente atual) |
-| iOS | `shared/src/iosMain/kotlin/com/example/shared/network/SupabaseConfig.ios.kt` | Trocar os placeholders, ou ler de `Info.plist`/`xcconfig` (recomendado) |
+O workflow `.github/workflows/build.yml` injeta esses secrets como variáveis de
+ambiente no build Android. O `shared/build.gradle.kts` gera o `BuildConfig` com
+`buildConfigField` a partir das env vars (com fallback para gradle properties
+`supabase.url` / `supabase.anonKey` em builds locais).
 
-Valores usados pelo app cliente Android hoje (projeto `qkjhguziuchqsbxzruea`):
+`SupabaseConfig.android.kt` lê do `BuildConfig`, com fallback para placeholders
+se vazio — nesse caso as telas mantêm os mocks.
 
-- URL: `https://qkjhguziuchqsbxzruea.supabase.co`
-- Chave: a `SUPABASE_ANON_KEY` do app cliente (chave **anon**, nunca a `service_role`)
+> A chave real NUNCA aparece no código. Ela vive apenas nos GitHub Secrets.
 
-> Nunca commitar a chave real neste repositório público. Use `BuildConfig` /
-> `Info.plist` gerados no build ou secrets do GitHub Actions.
+## Build local (opcional)
 
-## O que já funciona com a rede ligada
+Para testar com a rede real no seu PC, adicione ao `~/.gradle/gradle.properties`:
+```properties
+supabase.url=https://qkjhguziuchqsbxzruea.supabase.co
+supabase.anonKey=SUA-CHAVE-AQUI
+```
 
-- **Home**: lista de lojas reais (`stores_public`), com regra de vitrine
-  (fora lojas `pdv_only` e com < 5 produtos visíveis), taxa de entrega,
-  horário de funcionamento (fuso America/Sao_Paulo) e taxa VIP via RPC.
-- Endpoints prontos mas ainda não ligados às telas: produtos da loja,
-  login/cadastro e criação de pedido (telas seguem com mocks + `TODO(fase-rede)`).
+## iOS
+
+O `SupabaseConfig.ios.kt` ainda usa placeholders. Para ligar a rede no iOS:
+1. Adicionar as credenciais como secrets/variáveis no job `build-ios`
+2. Gerar um arquivo `SupabaseSecrets.xcconfig` ou injetar via `Info.plist`
+3. Ler via `NSBundle.mainBundle` no `SupabaseConfig.ios.kt`
+
+## O que está ligado na rede real
+
+- **Home**: lista de lojas reais (`fetchActiveStores`)
+- **Vitrine da loja**: produtos reais (`fetchProductsForStore`), com fallback pros mocks
+- **Login**: tenta `signIn` real, com fallback pro mock se falhar
+- **Bordas pizza/pastel, adicionais**: já usavam a API
+
+## Pendente
+
+- **Cadastro** (`signUp`): API pronta, falta ligar na tela
+- **Criar pedido** (`submitOrder`): API pronta, mas precisa de persistência de sessão
+  (clientId + accessToken) — ainda não implementada
+- **iOS**: credenciais ainda são placeholders
