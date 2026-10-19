@@ -140,7 +140,14 @@ fun StoreDetailScreen(
     onNavigateToInfo: () -> Unit
 ) {
     val store = remember(storeId) { findMockStore(storeId) }
-    val products = remember(storeId) { mockStoreProducts(storeId) }
+    // Produtos: tenta a API real, com fallback pros mocks se falhar/vazio.
+    var products by remember(storeId) { mutableStateOf(mockStoreProducts(storeId)) }
+    LaunchedEffect(storeId) {
+        try {
+            val real = SupabaseApi.fetchProductsForStore(storeId)
+            if (real.isNotEmpty()) products = real
+        } catch (_: Throwable) { /* mantém mocks */ }
+    }
     val menuSections = remember(storeId) { mockMenuSections(storeId) }
 
     var selectedProduct by remember { mutableStateOf<Product?>(null) }
