@@ -911,6 +911,41 @@ object SupabaseApi {
         }
     }
 
+    /**
+     * Busca os pedidos do cliente (tabela orders).
+     * Retorna lista vazia em caso de erro (sem mocks).
+     */
+    suspend fun fetchOrdersForClient(userId: String): List<Order> {
+        if (userId.isBlank()) return emptyList()
+        return try {
+            val (ok, json) = restGetRaw(
+                "$SUPABASE_URL/rest/v1/orders?select=id,store_id,total,status,created_at,payment_method&client_id=eq.$userId&order=created_at.desc&limit=50"
+            )
+            if (!ok || json.isBlank()) return emptyList()
+            val array = Json.parseToJsonElement(json).jsonArray
+            array.mapNotNull { el ->
+                try {
+                    val o = el.jsonObject
+                    Order(
+                        id = o["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                        storeId = o["store_id"]?.jsonPrimitive?.content ?: "",
+                        storeName = "", // Será preenchido via join se necessário
+                        items = emptyList(), // Itens carregados separadamente se necessário
+                        subtotal = 0.0,
+                        deliveryFee = 0.0,
+                        total = o["total"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                        paymentMethod = o["payment_method"]?.jsonPrimitive?.content ?: "",
+                        deliveryAddress = "",
+                        status = o["status"]?.jsonPrimitive?.content ?: "",
+                        createdAt = o["created_at"]?.jsonPrimitive?.content ?: ""
+                    )
+                } catch (_: Exception) { null }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
     // ------------------------------------------------------------------
     // (c) AUTH — porte de SupabaseClient.signIn / signUp
     // ------------------------------------------------------------------
