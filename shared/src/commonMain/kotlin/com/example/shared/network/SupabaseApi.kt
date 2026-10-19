@@ -11,6 +11,7 @@ import com.example.shared.model.PizzaBorder
 import com.example.shared.model.PizzaSizeCatalogItem
 import com.example.shared.model.Product
 import com.example.shared.model.PizzaLegacySize
+import com.example.shared.model.SavedAddress
 import com.example.shared.model.Store
 import com.example.shared.model.StoreOpeningHour
 import com.example.shared.model.StoreSettings
@@ -45,6 +46,7 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlin.math.round
 
@@ -1063,6 +1065,58 @@ object SupabaseApi {
             fetchActiveStores().stores.firstOrNull { it.id == storeId }
         } catch (_: Exception) {
             null
+        }
+    }
+
+    /**
+     * Busca os endereços salvos do usuário (tabela saved_addresses).
+     * Retorna lista vazia em caso de erro (sem mocks).
+     */
+    suspend fun fetchSavedAddresses(userId: String): List<SavedAddress> {
+        if (userId.isBlank()) return emptyList()
+        return try {
+            val response = httpClient.get("$baseUrl/rest/v1/saved_addresses") {
+                header("apikey", anonKey)
+                header("Authorization", "Bearer $anonKey")
+                url {
+                    parameters.append("select", "*")
+                    parameters.append("user_id", "eq.$userId")
+                    parameters.append("order", "is_default.desc,created_at.desc")
+                }
+            }
+            val json = response.bodyAsText()
+            parseSavedAddresses(json)
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun parseSavedAddresses(json: String): List<SavedAddress> {
+        return try {
+            val array = Json.parseToJsonElement(json).jsonArray
+            array.mapNotNull { el ->
+                try {
+                    val o = el.jsonObject
+                    SavedAddress(
+                        id = o["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                        label = o["label"]?.jsonPrimitive?.content ?: "Casa",
+                        street = o["street"]?.jsonPrimitive?.content ?: "",
+                        number = o["number"]?.jsonPrimitive?.content ?: "",
+                        complement = o["complement"]?.jsonPrimitive?.content ?: "",
+                        neighborhood = o["neighborhood"]?.jsonPrimitive?.content ?: "",
+                        city = o["city"]?.jsonPrimitive?.content ?: "",
+                        state = o["state"]?.jsonPrimitive?.content ?: "",
+                        referencePoint = o["reference_point"]?.jsonPrimitive?.content ?: "",
+                        cep = o["cep"]?.jsonPrimitive?.content ?: "",
+                        latitude = o["latitude"]?.jsonPrimitive?.doubleOrNull,
+                        longitude = o["longitude"]?.jsonPrimitive?.doubleOrNull,
+                        pinConfirmed = o["pin_confirmed"]?.jsonPrimitive?.booleanOrNull ?: false,
+                        isDefault = o["is_default"]?.jsonPrimitive?.booleanOrNull ?: false
+                    )
+                } catch (_: Exception) { null }
+            }
+        } catch (_: Exception) {
+            emptyList()
         }
     }
 
