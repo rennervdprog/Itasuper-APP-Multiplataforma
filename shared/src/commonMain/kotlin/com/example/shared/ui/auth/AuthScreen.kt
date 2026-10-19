@@ -41,6 +41,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import com.example.shared.network.SupabaseApi
+import com.example.shared.platform.SecureStorage
+import kotlinx.datetime.Clock
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.LaunchedEffect
@@ -166,11 +168,33 @@ private fun isValidEmail(email: String): Boolean = EMAIL_REGEX.matches(email.tri
  * (sucesso imediato após validação) — a integração real com o Supabase vem
  * na fase-rede.
  */
+/** Chaves do SecureStorage para a sessão do usuário. */
+const val KEY_USER_ID = "session_user_id"
+const val KEY_ACCESS_TOKEN = "session_access_token"
+const val KEY_REFRESH_TOKEN = "session_refresh_token"
+const val KEY_USER_EMAIL = "session_user_email"
+
 private class AuthState {
     var uiState by mutableStateOf(AuthUiState())
         private set
 
     private val scope = MainScope()
+    private val secureStorage = SecureStorage()
+
+    /**
+     * Salva a sessão do usuário no armazenamento seguro.
+     * Usado pelo checkout (submitOrder) e para manter o login.
+     */
+    private fun saveSession(userId: String?, accessToken: String?, refreshToken: String?, email: String) {
+        try {
+            if (!userId.isNullOrBlank()) secureStorage.save(KEY_USER_ID, userId)
+            if (!accessToken.isNullOrBlank()) secureStorage.save(KEY_ACCESS_TOKEN, accessToken)
+            if (!refreshToken.isNullOrBlank()) secureStorage.save(KEY_REFRESH_TOKEN, refreshToken)
+            if (email.isNotBlank()) secureStorage.save(KEY_USER_EMAIL, email)
+        } catch (_: Throwable) {
+            // Falha ao salvar não bloqueia o login
+        }
+    }
 
     fun setAuthMode(mode: AuthMode) {
         uiState = uiState.copy(authMode = mode, errorMessage = null, successMessage = null)
@@ -278,12 +302,15 @@ private class AuthState {
             return
         }
 
-        // Tenta o login real; fallback pro mock se a rede falhar (ex: sem credenciais).
+        // Login real via Supabase. Sem fallback para mock (regra: nada de dado fake).
+        // Erro de rede -> mensagem de erro (igual ao app original).
         uiState = state.copy(isLoading = true, errorMessage = null)
         scope.launch {
             try {
                 val result = SupabaseApi.signIn(email, state.loginPassword)
                 if (result.isSuccess) {
+                    // Salva a sessão para uso posterior (checkout, etc.)
+                    saveSession(result.userId, result.accessToken, result.refreshToken, email)
                     uiState = uiState.copy(isLoading = false, errorMessage = null)
                     onSuccess()
                 } else {
@@ -293,9 +320,10 @@ private class AuthState {
                     )
                 }
             } catch (_: Throwable) {
-                // Sem rede/credenciais: mantém o mock (qualquer e-mail/senha válidos entram).
-                uiState = uiState.copy(isLoading = false, errorMessage = null)
-                onSuccess()
+                uiState = uiState.copy(
+                    isLoading = false,
+                    errorMessage = "Não foi possível conectar. Verifique sua internet e tente novamente."
+                )
             }
         }
     }
@@ -341,11 +369,34 @@ private class AuthState {
             return
         }
 
-        // TODO(fase-rede): SupabaseClient.signUp + insertProfile + recordLegalAcceptance
-        // + salvar sessão (UserSessionRepository.register). Hoje: mock — validações
-        // passando, a conta é "criada".
-        uiState = state.copy(isLoading = false, errorMessage = null)
-        onSuccess()
+        // Cadastro real via Supabase. Sem mock (regra: nada de dado fake).
+        // Padrão do app original: usa o e-mail do login se preenchido,
+        // senão gera um placeholder (o identificador real é o WhatsApp).
+        val email = if (state.loginEmail.isNotBlank()) state.loginEmail.trim()
+            else "cliente_${Clock.System.now().toEpochMilliseconds()}@itasuper.com.br"
+        uiState = state.copy(isLoading = true, errorMessage = null)
+        scope.launch {
+            try {
+                val result = SupabaseApi.signUp(email, state.regPassword)
+                if (result.isSuccess) {
+                    // Salva a sessão para uso posterior
+                    saveSession(result.userId, result.accessToken, result.refreshToken, email)
+                    // TODO: insertProfile (nome, CPF, WhatsApp, PIN) + recordLegalAcceptance
+                    uiState = uiState.copy(isLoading = false, errorMessage = null)
+                    onSuccess()
+                } else {
+                    uiState = uiState.copy(
+                        isLoading = false,
+                        errorMessage = result.errorMessage ?: "Não foi possível criar a conta. Tente novamente."
+                    )
+                }
+            } catch (_: Throwable) {
+                uiState = uiState.copy(
+                    isLoading = false,
+                    errorMessage = "Não foi possível conectar. Verifique sua internet e tente novamente."
+                )
+            }
+        }
     }
 }
 
