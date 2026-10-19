@@ -1075,16 +1075,10 @@ object SupabaseApi {
     suspend fun fetchSavedAddresses(userId: String): List<SavedAddress> {
         if (userId.isBlank()) return emptyList()
         return try {
-            val response = httpClient.get("$baseUrl/rest/v1/saved_addresses") {
-                header("apikey", anonKey)
-                header("Authorization", "Bearer $anonKey")
-                url {
-                    parameters.append("select", "*")
-                    parameters.append("user_id", "eq.$userId")
-                    parameters.append("order", "is_default.desc,created_at.desc")
-                }
-            }
-            val json = response.bodyAsText()
+            val (ok, json) = restGetRaw(
+                "$SUPABASE_URL/rest/v1/saved_addresses?select=*&user_id=eq.$userId&order=is_default.desc,created_at.desc"
+            )
+            if (!ok || json.isBlank()) return emptyList()
             parseSavedAddresses(json)
         } catch (_: Exception) {
             emptyList()
