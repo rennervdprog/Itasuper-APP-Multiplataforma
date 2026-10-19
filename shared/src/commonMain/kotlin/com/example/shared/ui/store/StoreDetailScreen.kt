@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.LocalPizza
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Share
@@ -97,9 +98,6 @@ import com.example.shared.theme.ItaSuperWarning
 import com.example.shared.ui.cart.CartHolder
 import com.example.shared.ui.cart.formatBRL
 import com.example.shared.ui.common.StoreSwitchBottomSheet
-import com.example.shared.ui.mock.findMockStore
-import com.example.shared.ui.mock.mockMenuSections
-import com.example.shared.ui.mock.mockStoreProducts
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 import kotlinx.datetime.TimeZone
@@ -139,16 +137,63 @@ fun StoreDetailScreen(
     onNavigateToCart: () -> Unit,
     onNavigateToInfo: () -> Unit
 ) {
-    val store = remember(storeId) { findMockStore(storeId) }
-    // Produtos: tenta a API real, com fallback pros mocks se falhar/vazio.
-    var products by remember(storeId) { mutableStateOf(mockStoreProducts(storeId)) }
-    LaunchedEffect(storeId) {
+    // Loja e produtos reais do Supabase. Sem fallback para mocks (regra: nada de dado fake).
+    // Erro de rede -> tela de erro com "Tentar novamente" (igual ao app original).
+    var storeState by remember(storeId) { mutableStateOf<Store?>(null) }
+    var isLoadingStore by remember(storeId) { mutableStateOf(true) }
+    var storeErrorMessage by remember(storeId) { mutableStateOf<String?>(null) }
+    var storeReloadKey by remember(storeId) { mutableStateOf(0) }
+    LaunchedEffect(storeId, storeReloadKey) {
+        isLoadingStore = true
+        storeErrorMessage = null
         try {
-            val real = SupabaseApi.fetchProductsForStore(storeId)
-            if (real.isNotEmpty()) products = real
-        } catch (_: Throwable) { /* mantém mocks */ }
+            val result = SupabaseApi.fetchActiveStores()
+            val found = result.stores.find { it.id == storeId }
+            if (found != null) {
+                storeState = found
+            } else {
+                storeErrorMessage = "Não foi possível abrir esta loja."
+            }
+        } catch (_: Throwable) {
+            storeErrorMessage = "Não foi possível abrir esta loja. Verifique sua conexão."
+        }
+        isLoadingStore = false
     }
-    val menuSections = remember(storeId) { mockMenuSections(storeId) }
+
+    // Produtos: só da API real. Sem mocks.
+    var products by remember(storeId) { mutableStateOf<List<Product>>(emptyList()) }
+    var isLoadingProducts by remember(storeId) { mutableStateOf(true) }
+    LaunchedEffect(storeId, storeReloadKey) {
+        isLoadingProducts = true
+        try {
+            products = SupabaseApi.fetchProductsForStore(storeId)
+        } catch (_: Throwable) {
+            products = emptyList()
+        }
+        isLoadingProducts = false
+    }
+    // Seções derivadas das categorias reais dos produtos (sem mocks).
+    val menuSections = remember(products) {
+        products.mapNotNull { it.category.takeIf { c -> c.isNotBlank() } }
+            .distinct()
+            .mapIndexed { i, name -> MenuSection(id = "cat-$i", name = name) }
+    }
+
+    // Gate de carregamento/erro (padrão do app original: sem dados fake).
+    // Após este bloco, `store` tem smart cast para non-null.
+    val store = storeState
+    if (isLoadingStore) {
+        StoreDetailLoadingScreen(onBackClick = onBackClick)
+        return
+    }
+    if (store == null) {
+        StoreDetailErrorScreen(
+            message = storeErrorMessage ?: "Não foi possível abrir esta loja.",
+            onRetry = { storeReloadKey++ },
+            onBackClick = onBackClick
+        )
+        return
+    }
 
     var selectedProduct by remember { mutableStateOf<Product?>(null) }
     var modalQuantity by remember { mutableStateOf(1) }
@@ -2614,6 +2659,98 @@ private fun PizzaBuilderSheetContent(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+
+
+/** Top bar simples com botão voltar (usada nas telas de loading/erro). */
+@Composable
+private fun StoreDetailSimpleTopBar(onBackClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            modifier = Modifier
+                .size(36.dp)
+                .clickable(onClick = onBackClick),
+            shape = CircleShape,
+            color = Color(0xFFF5F5F5)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Voltar",
+                    tint = ItaSuperTextPrimary,
+                    modifier = Modifier.size(21.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Tela de carregamento da vitrine (enquanto busca a loja na API).
+ */ (enquanto busca a loja na API).
+ */
+@Composable
+private fun StoreDetailLoadingScreen(onBackClick: () -> Unit) {
+    Column(modifier = Modifier.fillMaxSize().background(Color.White)) {
+        StoreDetailSimpleTopBar(onBackClick = onBackClick)
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator(color = ItaSuperPrimary)
+        }
+    }
+}
+
+/**
+ * Tela de erro da vitrine (padrão do app original: mensagem + "Tentar novamente").
+ * Sem dados fake.
+ */
+@Composable
+private fun StoreDetailErrorScreen(
+    message: String,
+    onRetry: () -> Unit,
+    onBackClick: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize().background(Color.White)) {
+        StoreDetailSimpleTopBar(onBackClick = onBackClick)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "Não foi possível abrir esta loja",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
+                color = ItaSuperTextPrimary,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFF686868)),
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(18.dp))
+            Button(
+                onClick = onRetry,
+                colors = ButtonDefaults.buttonColors(containerColor = ItaSuperPrimary),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Filled.Refresh, contentDescription = null, tint = Color.White)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Tentar novamente", color = Color.White, fontWeight = FontWeight.Bold)
             }
         }
     }
