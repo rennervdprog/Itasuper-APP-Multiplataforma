@@ -176,7 +176,7 @@ fun StoreDetailScreen(
     val menuSections = remember(products) {
         products.mapNotNull { it.category.takeIf { c -> c.isNotBlank() } }
             .distinct()
-            .mapIndexed { i, name -> MenuSection(id = "cat-$i", name = name) }
+            .mapIndexed { i, name -> MenuSection(id = "cat-$i", storeId = storeId, name = name, sortOrder = i) }
     }
 
     // Gate de carregamento/erro (padrão do app original: sem dados fake).
@@ -2696,7 +2696,6 @@ private fun StoreDetailSimpleTopBar(onBackClick: () -> Unit) {
 
 /**
  * Tela de carregamento da vitrine (enquanto busca a loja na API).
- */ (enquanto busca a loja na API).
  */
 @Composable
 private fun StoreDetailLoadingScreen(onBackClick: () -> Unit) {
