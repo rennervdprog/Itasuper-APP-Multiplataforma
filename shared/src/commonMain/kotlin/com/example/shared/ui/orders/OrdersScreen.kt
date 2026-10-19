@@ -68,11 +68,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.shared.model.Order
 import com.example.shared.model.RefundEligibility
+import com.example.shared.network.SupabaseApi
+import com.example.shared.platform.SecureStorage
 import com.example.shared.theme.ItaSuperBorder
 import com.example.shared.theme.ItaSuperHighlightBg
 import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ItaSuperSuccess
-import com.example.shared.ui.mock.mockOrders
 import kotlinx.coroutines.delay
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
@@ -272,8 +273,24 @@ fun OrdersScreen(
     onExploreClick: () -> Unit = {},
     onTrackDelivery: (orderId: String) -> Unit = {}
 ) {
-    val orders = remember { mutableStateListOf<Order>().also { it.addAll(mockOrders()) } }
+    val orders = remember { mutableStateListOf<Order>() }
     val selectedFilter = remember { mutableStateOf(OrdersFilter.ACTIVE) }
+    
+    // Carrega pedidos reais do backend
+    LaunchedEffect(Unit) {
+        try {
+            val secureStorage = SecureStorage()
+            val userId = secureStorage.get("session_user_id") ?: ""
+            if (userId.isNotBlank()) {
+                val realOrders = SupabaseApi.fetchOrdersForClient(userId)
+                orders.clear()
+                orders.addAll(realOrders)
+            }
+        } catch (_: Exception) {
+            // Mantém lista vazia em caso de erro (sem mocks)
+        }
+    }
+    
     val filteredOrders = orders.filter { it.matchesFilter(selectedFilter.value) }
     val activeOrders = filteredOrders.filterNot { it.isFinished() }
     val previousOrders = filteredOrders.filter { it.isFinished() }
