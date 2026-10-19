@@ -69,11 +69,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.shared.model.SavedAddress
+import com.example.shared.model.Store
 import com.example.shared.model.preorderReleaseAtMillis
+import com.example.shared.network.SupabaseApi
 import com.example.shared.theme.ItaSuperBorder
 import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ItaSuperSuccess
-import com.example.shared.ui.mock.findMockStore
 import com.example.shared.ui.mock.mockSavedAddresses
 import kotlinx.datetime.Clock
 import kotlinx.datetime.DateTimeUnit
@@ -108,7 +109,20 @@ fun CheckoutScreen(
     cart: CartHolder,
     onNavigateBack: () -> Unit
 ) {
-    val store = cart.storeId?.let { findMockStore(it) }
+    // Loja real via Supabase (sem mock). Carrega assincronamente; enquanto carrega,
+    // as opções de pagamento que dependem da loja ficam indisponíveis.
+    var store by remember { mutableStateOf<Store?>(null) }
+    var storeLoadFailed by remember { mutableStateOf(false) }
+    LaunchedEffect(cart.storeId) {
+        val id = cart.storeId
+        if (id != null) {
+            try {
+                store = SupabaseApi.fetchStoreById(id)
+            } catch (e: Exception) {
+                storeLoadFailed = true
+            }
+        }
+    }
     val isPickup = cart.deliveryType == DeliveryType.PICKUP
     // No Android: deliveryQuoteReady = RETIRADA || (!isQuotingDelivery && hasOfficialDeliveryQuote).
     // No mock a cotação oficial está sempre pronta quando há taxa (fase-rede: vir do backend).
