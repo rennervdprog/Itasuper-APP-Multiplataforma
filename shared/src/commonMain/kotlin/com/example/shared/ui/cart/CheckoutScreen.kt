@@ -72,10 +72,10 @@ import com.example.shared.model.SavedAddress
 import com.example.shared.model.Store
 import com.example.shared.model.preorderReleaseAtMillis
 import com.example.shared.network.SupabaseApi
+import com.example.shared.platform.SecureStorage
 import com.example.shared.theme.ItaSuperBorder
 import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ItaSuperSuccess
-import com.example.shared.ui.mock.mockSavedAddresses
 import kotlinx.datetime.Clock
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.Instant
@@ -143,9 +143,24 @@ fun CheckoutScreen(
     val walletDiscount = if (useWallet) minOf(walletBalance, (cart.total - loyaltyDiscount).coerceAtLeast(0.0)) else 0.0
     val checkoutTotal = (cart.total - loyaltyDiscount - walletDiscount).coerceAtLeast(0.0)
 
-    // Endereços salvos (mock local; fase-rede: vir do repositório do usuário).
-    var savedAddresses by remember { mutableStateOf(mockSavedAddresses()) }
+    // Endereços salvos do usuário (tabela saved_addresses via Supabase).
+    var savedAddresses by remember { mutableStateOf<List<SavedAddress>>(emptyList()) }
     val selectedAddress = savedAddresses.firstOrNull { it.id == cart.selectedAddressId }
+    
+    // Carrega endereços reais do backend
+    LaunchedEffect(Unit) {
+        try {
+            val secureStorage = SecureStorage()
+            val userId = secureStorage.get("session_user_id") ?: ""
+            if (userId.isNotBlank()) {
+                val addresses = SupabaseApi.fetchSavedAddresses(userId)
+                savedAddresses = addresses
+            }
+        } catch (_: Exception) {
+            // Mantém lista vazia em caso de erro (sem mocks)
+        }
+    }
+    
     LaunchedEffect(savedAddresses) {
         if (cart.selectedAddressId == null || savedAddresses.none { it.id == cart.selectedAddressId }) {
             val def = savedAddresses.firstOrNull { it.isDefault } ?: savedAddresses.firstOrNull()
