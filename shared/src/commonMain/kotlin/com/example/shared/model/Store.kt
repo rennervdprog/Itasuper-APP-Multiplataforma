@@ -123,3 +123,37 @@ data class StoreWithCoupon(
             else -> "-R$${discountValue.toInt()}"
         }
 }
+
+/**
+ * Calcula a distância em km entre dois pontos usando a fórmula de Haversine.
+ */
+fun haversineKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+    val r = 6371.0 // Raio da Terra em km
+    val dLat = Math.toRadians(lat2 - lat1)
+    val dLon = Math.toRadians(lon2 - lon1)
+    val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2)
+    val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+    return r * c
+}
+
+/**
+ * Ordena lojas por relevância: abertas primeiro, depois por distância, depois por nome.
+ */
+fun List<Store>.sortedByRelevance(userLat: Double? = null, userLon: Double? = null): List<Store> {
+    return this.sortedWith(compareBy<Store> { 
+        // Fechadas por último (0 = aberta, 1 = fechada)
+        if (it.isOpen) 0 else 1 
+    }.thenBy { store ->
+        // Por distância (se disponível)
+        if (userLat != null && userLon != null && 
+            store.latitude != null && store.longitude != null) {
+            haversineKm(userLat, userLon, store.latitude, store.longitude)
+        } else {
+            store.distanceKm ?: Double.MAX_VALUE
+        }
+    }.thenBy { 
+        it.name.lowercase() 
+    })
+}
