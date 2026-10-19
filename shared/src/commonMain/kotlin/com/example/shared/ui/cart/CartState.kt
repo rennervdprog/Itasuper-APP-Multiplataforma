@@ -13,7 +13,6 @@ import com.example.shared.model.Product
 import com.example.shared.model.SelectedAddonItem
 import com.example.shared.network.SupabaseApi
 import com.example.shared.platform.SecureStorage
-import com.example.shared.ui.mock.mockCartItems
 import com.example.shared.ui.mock.mockSavedAddresses
 import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
@@ -130,17 +129,8 @@ class CartHolder {
     val total: Double
         get() = (subtotal + effectiveDeliveryFee - couponDiscount).coerceAtLeast(0.0)
 
-    init {
-        seedMock()
-    }
-
-    private fun seedMock() {
-        // Dados de exemplo para navegar pelo fluxo sem rede.
-        storeId = "s1"
-        storeName = "Pastelão Carioca"
-        items = mockCartItems()
-        deliveryFee = 4.90
-    }
+    // Carrinho começa vazio — sem dados mockados (regra do Renner: nada de dado fake).
+    // Os itens são adicionados pela vitrine via addProduct().
 
 
     /**
