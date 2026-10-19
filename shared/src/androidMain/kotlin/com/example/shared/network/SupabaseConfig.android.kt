@@ -1,9 +1,19 @@
 package com.example.shared.network
 
-// TODO(fase-rede): substituir pelos valores reais de produção.
-// Caminho recomendado: BuildConfig gerado de local.properties / secrets do CI
-// (o app cliente Android usa SUPABASE_URL/SUPABASE_ANON_KEY vindos do BuildConfig).
-// Ver SUPABASE_SETUP.md na raiz do repo.
-actual val SUPABASE_URL: String = "https://SUA-URL.supabase.co"
+import com.example.itasuper.shared.BuildConfig
 
-actual val SUPABASE_ANON_KEY: String = "SUA-ANON-KEY"
+/**
+ * Credenciais do Supabase no Android, lidas do BuildConfig.
+ *
+ * O BuildConfig é gerado pelo Gradle a partir de:
+ * - CI: variáveis de ambiente SUPABASE_URL / SUPABASE_ANON_KEY (GitHub Secrets)
+ * - Local: gradle properties supabase.url / supabase.anonKey
+ *
+ * Se vazio (build local sem configuração), cai nos placeholders e as telas
+ * mantêm os mocks (fallback) — ver SUPABASE_SETUP.md.
+ */
+actual val SUPABASE_URL: String =
+    BuildConfig.SUPABASE_URL.ifEmpty { "https://SUA-URL.supabase.co" }
+
+actual val SUPABASE_ANON_KEY: String =
+    BuildConfig.SUPABASE_ANON_KEY.ifEmpty { "SUA-ANON-KEY" }
