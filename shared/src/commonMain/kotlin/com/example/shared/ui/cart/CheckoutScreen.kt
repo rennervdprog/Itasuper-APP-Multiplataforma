@@ -751,7 +751,8 @@ fun CheckoutScreen(
                             val settings = store?.settings
                             if (settings?.acceptPixOnline == true) add("PIX Online")
                             if (settings?.acceptPixMachine == true) add("PIX na Maquininha")
-                            if (store?.pixDirectEnabled == true && store.pixDirectKey.isNotBlank()) add("PIX Direto")
+                            val s = store
+                            if (s?.pixDirectEnabled == true && s.pixDirectKey.isNotBlank()) add("PIX Direto")
                             if (settings?.acceptCard == true) add("Cartão")
                             if (settings?.acceptCash == true) add("Dinheiro")
                         }
