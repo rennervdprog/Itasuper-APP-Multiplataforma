@@ -87,6 +87,24 @@ class CartHolder {
     var deliveryFee by mutableStateOf(0.0)
         private set
 
+    /**
+     * Busca a taxa de entrega oficial da loja via RPC.
+     * Chamado quando a loja é definida no carrinho.
+     */
+    fun refreshDeliveryFee() {
+        val sid = storeId ?: return
+        scope.launch {
+            try {
+                val fee = SupabaseApi.fetchOfficialCustomerDeliveryFee(sid)
+                if (fee != null) {
+                    deliveryFee = fee
+                }
+            } catch (_: Exception) {
+                // Mantém 0.0 em caso de erro (sem mocks)
+            }
+        }
+    }
+
     var couponInput by mutableStateOf("")
     var appliedCouponCode by mutableStateOf<String?>(null)
         private set
@@ -160,6 +178,7 @@ class CartHolder {
         if (storeId == null) {
             storeId = product.storeId
             if (storeName.isNotBlank()) this.storeName = storeName
+            refreshDeliveryFee()
         }
         val existing = items.indexOfFirst {
             it.product.id == product.id && it.notes == notes && it.selectedAddons == addons
