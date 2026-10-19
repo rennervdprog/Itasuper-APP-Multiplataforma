@@ -119,8 +119,6 @@ import com.example.shared.theme.ItaSuperTextSecondary
 import com.example.shared.theme.ItaSuperWarning
 import com.example.shared.theme.ManropeFontFamily
 import com.example.shared.theme.SoraFontFamily
-import com.example.shared.ui.mock.mockProducts
-import com.example.shared.ui.mock.mockStores
 import com.example.shared.ui.mock.mockUserSession
 import com.example.shared.ui.permissions.LocationAndPermissionsDialog
 import com.example.shared.ui.permissions.PlatformPermissions
@@ -317,13 +315,26 @@ fun HomeScreen(
     onCartClick: () -> Unit = {},
     cartItemCount: Int = 0
 ) {
-    // Fase 4: lojas reais do Supabase, com fallback para os mocks em caso de falha.
-    var stores by remember { mutableStateOf(mockStores) }
-    LaunchedEffect(Unit) {
-        val result = SupabaseApi.fetchActiveStores()
-        if (result.isSuccess && result.stores.isNotEmpty()) {
-            stores = result.stores
+    // Lojas reais do Supabase. Sem fallback para mocks (regra: nada de dado fake).
+    // Erro de rede -> tela de erro com "Tentar novamente" (igual ao app original).
+    var stores by remember { mutableStateOf<List<Store>>(emptyList()) }
+    var isLoadingStores by remember { mutableStateOf(true) }
+    var storesErrorMessage by remember { mutableStateOf<String?>(null) }
+    var storesReloadKey by remember { mutableStateOf(0) }
+    LaunchedEffect(storesReloadKey) {
+        isLoadingStores = true
+        storesErrorMessage = null
+        try {
+            val result = SupabaseApi.fetchActiveStores()
+            if (result.isSuccess) {
+                stores = result.stores
+            } else {
+                storesErrorMessage = "Não foi possível carregar as lojas. Verifique sua conexão."
+            }
+        } catch (_: Throwable) {
+            storesErrorMessage = "Não foi possível carregar as lojas. Verifique sua conexão."
         }
+        isLoadingStores = false
     }
 
     // Estado que no original vive no HomeViewModel.
@@ -393,14 +404,15 @@ fun HomeScreen(
     }
 
     val activeCity = session.addressCity.ifBlank { "Araruama" }
-    val categories = remember { mockHomeCategories() }
-    val banners = remember { mockHomeBanners() }
+    val categories = remember { mockHomeCategories() } // filtros estáticos da UI (não são dados)
+    // Seções promocionais com dados mock removidas (regra: nada de dado fake).
+    // banners, cupons, ofertas e "peça de novo" só voltam com dados reais.
     val daypart = remember { currentHomeDaypart() }
     val spotlightStores = remember(stores) { stores.filter { it.isOpen }.take(4) }
     val recentStores = remember(stores) { stores.take(2) }
-    val storesWithCoupons = remember { mockStoresWithCoupons() }
-    val affordableProducts = remember { mockProducts.filter { it.price <= 20.0 }.take(8) }
-    val repeatProducts = remember { mockProducts.take(8) }
+    val storesWithCoupons = remember { emptyList<StoreWithCoupon>() }
+    val affordableProducts = remember { emptyList<Product>() }
+    val repeatProducts = remember { emptyList<Product>() }
 
     val visibleStores = remember(stores, selectedCategory, isFreeFeeActive, isDirectDeliveryActive, storeSort) {
         applyHomeStoreFilters(stores, selectedCategory, isFreeFeeActive, isDirectDeliveryActive, storeSort)
@@ -496,8 +508,8 @@ fun HomeScreen(
             stores = visibleStores,
             regionalStoreCount = stores.size,
             hasActiveFilters = hasActiveFilters,
-            isLoading = false,
-            errorMessage = null,
+            isLoading = isLoadingStores,
+            errorMessage = storesErrorMessage,
             requiresAddress = false,
             activeCity = activeCity,
             selectedCategory = selectedCategory,
@@ -508,7 +520,7 @@ fun HomeScreen(
             onToggleFreeFee = { isFreeFeeActive = !isFreeFeeActive },
             onToggleDirectDelivery = { isDirectDeliveryActive = !isDirectDeliveryActive },
             onStoreSortSelect = { storeSort = it },
-            onRetry = { },
+            onRetry = { storesReloadKey++ },
             onInformAddress = { showAddressChoiceDialog = true },
             onStoreClick = onStoreClick,
             // Sem categoria: a Busca abre o catálogo completo da cidade.
