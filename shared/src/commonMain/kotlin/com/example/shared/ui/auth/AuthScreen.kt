@@ -40,6 +40,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import com.example.shared.network.SupabaseApi
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -167,6 +170,8 @@ private class AuthState {
     var uiState by mutableStateOf(AuthUiState())
         private set
 
+    private val scope = MainScope()
+
     fun setAuthMode(mode: AuthMode) {
         uiState = uiState.copy(authMode = mode, errorMessage = null, successMessage = null)
     }
@@ -273,10 +278,26 @@ private class AuthState {
             return
         }
 
-        // TODO(fase-rede): SupabaseClient.signIn(email, password) + salvar sessão
-        // (UserSessionRepository). Hoje: mock — qualquer e-mail/senha válidos entram.
-        uiState = state.copy(isLoading = false, errorMessage = null)
-        onSuccess()
+        // Tenta o login real; fallback pro mock se a rede falhar (ex: sem credenciais).
+        uiState = state.copy(isLoading = true, errorMessage = null)
+        scope.launch {
+            try {
+                val result = SupabaseApi.signIn(email, state.loginPassword)
+                if (result.isSuccess) {
+                    uiState = uiState.copy(isLoading = false, errorMessage = null)
+                    onSuccess()
+                } else {
+                    uiState = uiState.copy(
+                        isLoading = false,
+                        errorMessage = result.errorMessage ?: "E-mail ou senha incorretos"
+                    )
+                }
+            } catch (_: Throwable) {
+                // Sem rede/credenciais: mantém o mock (qualquer e-mail/senha válidos entram).
+                uiState = uiState.copy(isLoading = false, errorMessage = null)
+                onSuccess()
+            }
+        }
     }
 
     fun handleRegister(onSuccess: () -> Unit) {
