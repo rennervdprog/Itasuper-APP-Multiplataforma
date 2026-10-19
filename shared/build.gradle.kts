@@ -71,6 +71,18 @@ android {
 
     defaultConfig {
         minSdk = libs.versions.minSdk.get().toInt()
+        // Credenciais do Supabase via BuildConfig (CI: secrets; local: gradle properties).
+        // Nunca commitar valores reais — o fallback vazio mantém os placeholders.
+        val supabaseUrl: String = System.getenv("SUPABASE_URL")
+            ?: project.findProperty("supabase.url")?.toString() ?: ""
+        val supabaseAnonKey: String = System.getenv("SUPABASE_ANON_KEY")
+            ?: project.findProperty("supabase.anonKey")?.toString() ?: ""
+        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {
