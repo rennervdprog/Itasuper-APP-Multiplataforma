@@ -66,7 +66,6 @@ import com.example.shared.theme.ItaSuperHighlightBg
 import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ItaSuperTextPrimary
 import com.example.shared.theme.ItaSuperTextSecondary
-import com.example.shared.ui.mock.mockNotifications
 import kotlinx.coroutines.delay
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
@@ -94,11 +93,13 @@ private fun ClientNotification.matchesFilter(filter: NotificationsFilter): Boole
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NotificationsScreen() {
-    var notifications by remember { mutableStateOf(mockNotifications()) }
+    // Sem backend de notificações ainda — lista vazia (regra: nada de dado fake).
+    // TODO: implementar fetchNotifications quando houver tabela/API.
+    var notifications by remember { mutableStateOf<List<com.example.shared.model.ClientNotification>>(emptyList()) }
     var selectedFilter by remember { mutableStateOf(NotificationsFilter.ALL) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage: String? by remember { mutableStateOf(null) }
-    val everHadNotifications = remember { mutableStateOf(mockNotifications().isNotEmpty()) }
+    val everHadNotifications = remember { mutableStateOf(false) }
 
     val filteredNotifications = notifications.filter { it.matchesFilter(selectedFilter) }
     val unreadCount = notifications.count { !it.isRead }
