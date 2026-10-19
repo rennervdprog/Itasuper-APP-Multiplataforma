@@ -9,9 +9,15 @@ import com.example.shared.model.CartItem
 import com.example.shared.model.Order
 import com.example.shared.model.Product
 import com.example.shared.model.SelectedAddonItem
+import com.example.shared.network.SupabaseApi
+import com.example.shared.platform.SecureStorage
 import com.example.shared.ui.mock.mockCartItems
 import com.example.shared.ui.mock.mockSavedAddresses
 import kotlin.math.abs
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * Formatação manual de moeda para o commonMain (sem String.format).
@@ -36,7 +42,14 @@ enum class DeliveryType { DELIVERY, PICKUP }
  * TODO(fase-rede): carregar/salvar o carrinho real via Ktor/SupabaseClient,
  * cotar a entrega de verdade e validar o cupom no backend.
  */
+/** Chaves do SecureStorage para a sessão (iguais às do AuthScreen). */
+private const val KEY_USER_ID = "session_user_id"
+private const val KEY_ACCESS_TOKEN = "session_access_token"
+
 class CartHolder {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val secureStorage = SecureStorage()
+
     var storeId by mutableStateOf<String?>(null)
         private set
     var storeName by mutableStateOf("")
@@ -194,6 +207,10 @@ class CartHolder {
         needsChange = value
     }
 
+    /**
+     * Envia o pedido real via Supabase. Sem mock (regra: nada de dado fake).
+     * Exige sessão ativa (login); sem sessão, pede login (igual ao app original).
+     */
     fun placeOrder() {
         if (items.isEmpty() || isPlacingOrder) return
         orderError = null
@@ -201,22 +218,52 @@ class CartHolder {
             orderError = "Selecione um endereço de entrega."
             return
         }
-        // TODO(fase-rede): enviar o pedido real via Ktor (edge function create-order),
-        // gerar o PIX real e retornar o pedido confirmado pelo servidor.
-        placedOrder = Order(
-            id = "m1o2c3k4-5e6f-7890",
-            storeId = storeId ?: "",
-            storeName = storeName,
-            items = items,
-            subtotal = subtotal,
-            deliveryFee = effectiveDeliveryFee,
-            discount = couponDiscount,
-            total = total,
-            paymentMethod = paymentMethod,
-            deliveryAddress = deliveryAddressSummary(),
-            status = "recebido",
-            createdAt = "2026-10-17T19:00:00"
-        )
+        // Verifica a sessão salva (login obrigatório para pedir)
+        val userId = try { secureStorage.get(KEY_USER_ID) } catch (_: Throwable) { null }
+        val accessToken = try { secureStorage.get(KEY_ACCESS_TOKEN) } catch (_: Throwable) { null }
+        if (userId.isNullOrBlank() || accessToken.isNullOrBlank()) {
+            orderError = "Faça login para finalizar o pedido."
+            return
+        }
+
+        isPlacingOrder = true
+        scope.launch {
+            try {
+                val order = Order(
+                    id = "",
+                    storeId = storeId ?: "",
+                    storeName = storeName,
+                    items = items,
+                    subtotal = subtotal,
+                    deliveryFee = effectiveDeliveryFee,
+                    discount = couponDiscount,
+                    total = total,
+                    paymentMethod = paymentMethod,
+                    deliveryAddress = deliveryAddressSummary(),
+                    status = "recebido",
+                    createdAt = ""
+                )
+                val changeFor = changeForAmount.toDoubleOrNull()
+                val result = SupabaseApi.submitOrder(
+                    order = order,
+                    clientId = userId,
+                    accessToken = accessToken,
+                    needsChange = needsChange,
+                    changeFor = changeFor
+                )
+                if (result.isSuccess) {
+                    placedOrder = order.copy(
+                        id = result.orderId ?: "",
+                        createdAt = result.createdAt ?: ""
+                    )
+                } else {
+                    orderError = result.errorMessage ?: "Não foi possível enviar o pedido. Tente novamente."
+                }
+            } catch (_: Throwable) {
+                orderError = "Não foi possível enviar o pedido. Verifique sua conexão e tente novamente."
+            }
+            isPlacingOrder = false
+        }
     }
 
     fun dismissSuccess() {
