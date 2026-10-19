@@ -119,7 +119,6 @@ import com.example.shared.theme.ItaSuperTextSecondary
 import com.example.shared.theme.ItaSuperWarning
 import com.example.shared.theme.ManropeFontFamily
 import com.example.shared.theme.SoraFontFamily
-import com.example.shared.model.Product
 import com.example.shared.ui.mock.mockUserSession
 import com.example.shared.ui.permissions.LocationAndPermissionsDialog
 import com.example.shared.ui.permissions.PlatformPermissions
@@ -412,8 +411,8 @@ fun HomeScreen(
     val spotlightStores = remember(stores) { stores.filter { it.isOpen }.take(4) }
     val recentStores = remember(stores) { stores.take(2) }
     val storesWithCoupons = remember { emptyList<StoreWithCoupon>() }
-    val affordableProducts = remember { emptyList<Product>() }
-    val repeatProducts = remember { emptyList<Product>() }
+    val affordableProducts = remember { emptyList<DiscoverProduct>() }
+    val repeatProducts = remember { emptyList<DiscoverProduct>() }
 
     val visibleStores = remember(stores, selectedCategory, isFreeFeeActive, isDirectDeliveryActive, storeSort) {
         applyHomeStoreFilters(stores, selectedCategory, isFreeFeeActive, isDirectDeliveryActive, storeSort)
