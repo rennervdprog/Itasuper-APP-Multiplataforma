@@ -215,13 +215,33 @@ class CartHolder {
     fun applyCoupon() {
         couponError = null
         val code = couponInput.trim().uppercase()
-        // TODO(fase-rede): validar o cupom no backend (tabela coupons).
-        if (code == "PROMO10") {
-            val discount = (subtotal * 0.10).coerceAtMost(10.0)
-            appliedCouponCode = code
-            couponDiscount = discount
-        } else {
-            couponError = "Cupom inválido ou expirado."
+        if (code.isBlank()) {
+            couponError = "Digite um código de cupom."
+            return
+        }
+        scope.launch {
+            try {
+                val coupon = SupabaseApi.fetchCoupon(code, storeId)
+                if (coupon == null) {
+                    couponError = "Cupom inválido ou expirado."
+                    return@launch
+                }
+                // Verifica valor mínimo do pedido
+                if (subtotal < coupon.minOrderValue) {
+                    couponError = "Pedido mínimo de R$ ${coupon.minOrderValue} para este cupom."
+                    return@launch
+                }
+                // Calcula desconto
+                val discount = when (coupon.discountType) {
+                    "percentage" -> (subtotal * coupon.discountValue / 100.0)
+                    else -> coupon.discountValue
+                }.coerceAtMost(subtotal)
+                
+                appliedCouponCode = coupon.code
+                couponDiscount = discount
+            } catch (_: Exception) {
+                couponError = "Erro ao validar cupom. Tente novamente."
+            }
         }
     }
 
