@@ -119,6 +119,7 @@ import com.example.shared.theme.ItaSuperTextSecondary
 import com.example.shared.theme.ItaSuperWarning
 import com.example.shared.theme.ManropeFontFamily
 import com.example.shared.theme.SoraFontFamily
+import com.example.shared.model.Product
 import com.example.shared.ui.mock.mockUserSession
 import com.example.shared.ui.permissions.LocationAndPermissionsDialog
 import com.example.shared.ui.permissions.PlatformPermissions
