@@ -360,7 +360,7 @@ object SupabaseApi {
     }
 
     /** Taxa-base ao cliente via RPC pública (mesma usada pela cotação). null = indisponível. */
-    private suspend fun fetchOfficialCustomerDeliveryFee(storeId: String): Double? {
+    suspend fun fetchOfficialCustomerDeliveryFee(storeId: String): Double? {
         if (storeId.isBlank()) return null
         val body = buildJsonObject { putStr("_store_id", storeId) }.toString()
         val (ok, text) = restPostRaw("$SUPABASE_URL/rest/v1/rpc/compute_store_delivery_fee", body)
