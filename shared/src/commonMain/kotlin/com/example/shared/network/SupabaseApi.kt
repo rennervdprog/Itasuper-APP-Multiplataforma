@@ -16,6 +16,7 @@ import com.example.shared.model.StoreOpeningHour
 import com.example.shared.model.StoreSettings
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.delete
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -85,6 +86,14 @@ data class OrderSubmissionResponse(
     val isSuccess: Boolean,
     val orderId: String? = null,
     val createdAt: String? = null,
+    val errorMessage: String? = null
+)
+
+/** Porte de PixPaymentResponse do app Android (SupabaseClient.kt). */
+data class PixPaymentResponse(
+    val isSuccess: Boolean,
+    val pixCode: String? = null,
+    val qrCodeBase64: String? = null,
     val errorMessage: String? = null
 )
 
@@ -1040,6 +1049,160 @@ object SupabaseApi {
                 isSuccess = false,
                 errorMessage = "Falha de conexão ao enviar o pedido."
             )
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // (d2) LOJA POR ID — porte de SupabaseClient.fetchStoreById do app
+    // Android: reutiliza o mapper central do fetchActiveStores.
+    // ------------------------------------------------------------------
+
+    suspend fun fetchStoreById(storeId: String): Store? {
+        if (storeId.isBlank()) return null
+        return try {
+            fetchActiveStores().stores.firstOrNull { it.id == storeId }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // (d3) PIX — porte de SupabaseClient.generatePixForOrder +
+    // uploadPixDirectProof do app Android.
+    // ------------------------------------------------------------------
+
+    /**
+     * Gera o PIX online do pedido pela Edge Function `payment-router`
+     * (action "order_pix"), igual ao app Android.
+     */
+    suspend fun generatePixForOrder(
+        order: Order,
+        payerFullName: String,
+        payerDocument: String,
+        accessToken: String
+    ): PixPaymentResponse {
+        return try {
+            val document = payerDocument.filter { it.isDigit() }
+            if (document.length != 11) {
+                return PixPaymentResponse(
+                    false,
+                    errorMessage = "Cadastre um CPF válido no perfil antes de pagar com PIX."
+                )
+            }
+            val nameParts = payerFullName.trim().ifBlank { "Cliente ItaSuper" }.split(Regex("\\s+"))
+            val firstName = nameParts.firstOrNull().orEmpty().ifBlank { "Cliente" }
+            val lastName = nameParts.drop(1).joinToString(" ").ifBlank { "ItaSuper" }
+            val requestJson = buildJsonObject {
+                putStr("action", "order_pix")
+                putStr("order_id", order.id)
+                putNum("amount", order.total)
+                putStr(
+                    "description",
+                    "Pedido #${order.id.take(6).uppercase()} - ${order.storeName.ifBlank { "ItaSuper" }}"
+                )
+                putStr("payer_first_name", firstName)
+                putStr("payer_last_name", lastName)
+                putStr("payer_cpf", document)
+            }.toString()
+            val (ok, text) = restPostRaw(
+                "$SUPABASE_URL/functions/v1/payment-router",
+                requestJson,
+                bearer = accessToken
+            )
+            if (!ok || text.isBlank()) {
+                return PixPaymentResponse(
+                    false,
+                    errorMessage = parseErrorMessage(text, "Não foi possível gerar o PIX.")
+                )
+            }
+            val payload = runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull()
+                ?: return PixPaymentResponse(false, errorMessage = "Não foi possível gerar o PIX.")
+            if (payload.optBoolean("rate_limited", false)) {
+                return PixPaymentResponse(
+                    false,
+                    errorMessage = "Muitas tentativas de PIX. Aguarde alguns minutos e tente novamente."
+                )
+            }
+            val gatewayError = payload.optString("error").trim()
+            if (gatewayError.isNotBlank()) {
+                return PixPaymentResponse(false, errorMessage = gatewayError)
+            }
+            val pixCode = payload.optString("pix_code", payload.optString("qr_code")).trim().ifBlank { null }
+            val qrCodeBase64 =
+                payload.optString("qr_code_url", payload.optString("qr_code_base64")).trim().ifBlank { null }
+            if (pixCode == null && qrCodeBase64 == null) {
+                return PixPaymentResponse(
+                    false,
+                    errorMessage = "O servidor não devolveu o QR Code do PIX."
+                )
+            }
+            PixPaymentResponse(true, pixCode = pixCode, qrCodeBase64 = qrCodeBase64)
+        } catch (_: Exception) {
+            PixPaymentResponse(false, errorMessage = "Falha de conexão ao gerar o PIX.")
+        }
+    }
+
+    /**
+     * Envia o comprovante do PIX Direto ao storage `pix-proofs` e vincula o
+     * arquivo ao pedido pela RPC oficial `attach_pix_proof`.
+     * (Porte de SupabaseClient.uploadPixDirectProof do app Android.)
+     */
+    suspend fun uploadPixDirectProof(
+        orderId: String,
+        storeId: String,
+        bytes: ByteArray,
+        mimeType: String,
+        extension: String,
+        accessToken: String
+    ): Result<Unit> {
+        return try {
+            if (bytes.isEmpty()) {
+                return Result.failure(IllegalArgumentException("O comprovante está vazio."))
+            }
+            if (mimeType !in setOf("image/jpeg", "image/png", "application/pdf")) {
+                return Result.failure(IllegalArgumentException("Envie um comprovante JPG, PNG ou PDF."))
+            }
+            if (bytes.size > 5 * 1024 * 1024) {
+                return Result.failure(IllegalArgumentException("O comprovante deve ter no máximo 5 MB."))
+            }
+            val normalizedExtension = extension.lowercase().ifBlank { "jpg" }
+            val path = "$storeId/$orderId.$normalizedExtension"
+            val uploadResponse: HttpResponse = client.post("$SUPABASE_URL/storage/v1/object/pix-proofs/$path") {
+                header("apikey", SUPABASE_ANON_KEY)
+                header("Authorization", "Bearer $accessToken")
+                header("x-upsert", "true")
+                contentType(ContentType.parse(mimeType))
+                setBody(bytes)
+            }
+            val uploadBody = uploadResponse.bodyAsText()
+            if (!uploadResponse.status.isSuccess()) {
+                return Result.failure(
+                    IllegalStateException(parseErrorMessage(uploadBody, "Não foi possível enviar o comprovante."))
+                )
+            }
+            val attachJson = buildJsonObject {
+                putStr("p_order_id", orderId)
+                putStr("p_proof_path", path)
+            }.toString()
+            val (attachOk, attachBody) = restPostRaw(
+                "$SUPABASE_URL/rest/v1/rpc/attach_pix_proof",
+                attachJson,
+                accessToken
+            )
+            if (!attachOk) {
+                runCatching {
+                    client.delete("$SUPABASE_URL/storage/v1/object/pix-proofs/$path") {
+                        header("apikey", SUPABASE_ANON_KEY)
+                        header("Authorization", "Bearer $accessToken")
+                    }
+                }
+                return Result.failure(
+                    IllegalStateException(parseErrorMessage(attachBody, "O comprovante não pôde ser associado ao pedido."))
+                )
+            }
+            Result.success(Unit)
+        } catch (_: Exception) {
+            Result.failure(IllegalStateException("Falha de conexão ao enviar o comprovante."))
         }
     }
 

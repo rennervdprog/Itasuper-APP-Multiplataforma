@@ -114,6 +114,7 @@ fun App() {
                     // Tela de confirmação ocupa a tela toda (substitui a navegação).
                     OrderSuccessScreen(
                         order = placedOrder,
+                        cart = cartState,
                         onTrackOrders = {
                             cartState.dismissSuccess()
                             navigator.navigateTo(AppScreen.ORDERS)

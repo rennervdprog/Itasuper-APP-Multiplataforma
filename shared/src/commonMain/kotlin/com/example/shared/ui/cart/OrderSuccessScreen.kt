@@ -36,6 +36,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import coil3.compose.AsyncImage
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import com.example.shared.model.Order
 import com.example.shared.theme.ItaSuperHighlightBg
 import com.example.shared.theme.ItaSuperPrimary
@@ -50,6 +60,7 @@ import com.example.shared.theme.ItaSuperSuccess
 @Composable
 fun OrderSuccessScreen(
     order: Order,
+    cart: CartHolder,
     onTrackOrders: () -> Unit,
     onBackHome: () -> Unit
 ) {
@@ -169,6 +180,16 @@ fun OrderSuccessScreen(
             }
         }
 
+        // Seções de pagamento PIX — porte do fluxo do app original.
+        if (order.paymentMethod == "pix") {
+            Spacer(modifier = Modifier.height(20.dp))
+            PixPaymentSection(order = order, cart = cart)
+        }
+        if (order.paymentMethod == "pix_direto") {
+            Spacer(modifier = Modifier.height(20.dp))
+            PixDirectSection(order = order, cart = cart)
+        }
+
         Spacer(modifier = Modifier.height(28.dp))
         Button(
             onClick = onTrackOrders,
@@ -185,5 +206,211 @@ fun OrderSuccessScreen(
             Text("Voltar ao início", color = ItaSuperPrimary, fontWeight = FontWeight.SemiBold)
         }
         Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+
+/**
+ * Seção "Pagar com PIX" — gera o QR/código via payment-router e exibe para pagamento.
+ * (Porte do fluxo PixPaymentUiState do app original.)
+ */
+@Composable
+private fun PixPaymentSection(order: Order, cart: CartHolder) {
+    val pixState = cart.pixPayment
+    var copied by remember { mutableStateOf(false) }
+    val clipboardManager = LocalClipboardManager.current
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White)
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("Pagamento via PIX", fontWeight = FontWeight.Bold, color = ItaSuperPrimary)
+
+        when {
+            pixState == null -> {
+                Text(
+                    "Clique abaixo para gerar o QR Code do PIX e concluir o pagamento.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+                Button(
+                    onClick = { cart.generatePixPayment(order) },
+                    colors = ButtonDefaults.buttonColors(containerColor = ItaSuperPrimary),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Pagar com PIX", fontWeight = FontWeight.Bold)
+                }
+            }
+            pixState.isLoading -> {
+                CircularProgressIndicator(color = ItaSuperPrimary)
+                Text("Gerando PIX...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            pixState.errorMessage != null -> {
+                Text(
+                    pixState.errorMessage,
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center
+                )
+                OutlinedButton(onClick = { cart.generatePixPayment(order) }) {
+                    Text("Tentar novamente")
+                }
+            }
+            else -> {
+                pixState.qrCodeBase64?.takeIf { it.isNotBlank() }?.let { qr ->
+                    AsyncImage(
+                        model = if (qr.startsWith("data:")) qr else "data:image/png;base64,$qr",
+                        contentDescription = "QR Code do PIX",
+                        modifier = Modifier.size(200.dp)
+                    )
+                }
+                pixState.pixCode?.takeIf { it.isNotBlank() }?.let { code ->
+                    Text(
+                        "PIX copia e cola:",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = code,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center
+                    )
+                    OutlinedButton(onClick = {
+                        clipboardManager.setText(AnnotatedString(code))
+                        copied = true
+                    }) {
+                        Icon(Icons.Filled.ContentCopy, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (copied) "Copiado!" else "Copiar código")
+                    }
+                }
+                Text(
+                    "Após pagar, o pedido será confirmado automaticamente.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Seção "PIX Direto" — exibe a chave da loja e permite enviar o comprovante.
+ * (Porte do fluxo PixDirectPaymentUiState do app original.)
+ */
+@Composable
+private fun PixDirectSection(order: Order, cart: CartHolder) {
+    val directState = cart.pixDirectPayment
+    var copied by remember { mutableStateOf(false) }
+    val clipboardManager = LocalClipboardManager.current
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White)
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("Pagamento via PIX Direto", fontWeight = FontWeight.Bold, color = ItaSuperPrimary)
+
+        when {
+            directState == null -> {
+                Text(
+                    "Veja a chave PIX da loja e envie o comprovante após pagar.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+                Button(
+                    onClick = { cart.openPixDirectPayment(order) },
+                    colors = ButtonDefaults.buttonColors(containerColor = ItaSuperPrimary),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Ver chave e enviar comprovante", fontWeight = FontWeight.Bold)
+                }
+            }
+            directState.errorMessage != null && directState.pixKey.isBlank() -> {
+                Text(
+                    directState.errorMessage,
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center
+                )
+                OutlinedButton(onClick = { cart.openPixDirectPayment(order) }) {
+                    Text("Tentar novamente")
+                }
+            }
+            else -> {
+                if (directState.pixKey.isNotBlank()) {
+                    Text(
+                        "Chave PIX (${directState.pixKeyType.ifBlank { "chave" }}):",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(directState.pixKey, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    OutlinedButton(onClick = {
+                        clipboardManager.setText(AnnotatedString(directState.pixKey))
+                        copied = true
+                    }) {
+                        Icon(Icons.Filled.ContentCopy, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (copied) "Copiada!" else "Copiar chave")
+                    }
+                }
+                if (directState.beneficiary.isNotBlank()) {
+                    Text(
+                        "Favorecido: ${directState.beneficiary}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (directState.instructions.isNotBlank()) {
+                    Text(
+                        directState.instructions,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                if (directState.proofSent) {
+                    Text(
+                        "Comprovante enviado! A loja vai confirmar seu pagamento.",
+                        color = ItaSuperSuccess,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center
+                    )
+                } else {
+                    Text(
+                        "Após pagar, envie o comprovante (JPG, PNG ou PDF, máx. 5 MB).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        "A seleção do arquivo estará disponível na versão final do app.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                if (directState.errorMessage != null) {
+                    Text(
+                        directState.errorMessage,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
     }
 }

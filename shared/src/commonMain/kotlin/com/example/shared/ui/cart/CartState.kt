@@ -7,6 +7,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.example.shared.model.CartItem
 import com.example.shared.model.Order
+import com.example.shared.model.PixDirectPaymentUiState
+import com.example.shared.model.PixPaymentUiState
 import com.example.shared.model.Product
 import com.example.shared.model.SelectedAddonItem
 import com.example.shared.network.SupabaseApi
@@ -31,6 +33,31 @@ fun formatBRL(valor: Double): String {
     val intStr = inteiro.toString().reversed().chunked(3).joinToString(".").reversed()
     val centStr = if (centavos < 10) "0$centavos" else "$centavos"
     return "${sinal}R$ $intStr,$centStr"
+}
+
+/**
+ * Normaliza a forma de pagamento de exibição para o vocabulário do backend.
+ * (Porte de OrdersViewModel.checkoutOrder do app original — o backend/PDV
+ * consome "pix", "pix_machine", "pix_direto", "cartao", "dinheiro".)
+ */
+fun normalizePaymentMethod(display: String): String = when (display.trim().lowercase()) {
+    "pix", "pix online" -> "pix"
+    "pix na maquininha" -> "pix_machine"
+    "pix direto" -> "pix_direto"
+    "cartão", "cartao", "cartão na entrega" -> "cartao"
+    "dinheiro", "dinheiro na entrega" -> "dinheiro"
+    else -> display.trim().lowercase()
+}
+
+/**
+ * Status inicial do pedido conforme a forma de pagamento.
+ * (Porte de OrdersViewModel.checkoutOrder do app original — o status
+ * "recebido" não existe na máquina de estados do backend.)
+ */
+fun initialOrderStatus(normalizedPaymentMethod: String): String = when (normalizedPaymentMethod) {
+    "pix" -> "aguardando_pagamento"
+    "pix_direto" -> "aguardando_comprovante"
+    else -> "pendente"
 }
 
 enum class DeliveryType { DELIVERY, PICKUP }
@@ -81,6 +108,11 @@ class CartHolder {
     var placedOrder by mutableStateOf<Order?>(null)
         private set
     var orderError by mutableStateOf<String?>(null)
+        private set
+
+    var pixPayment by mutableStateOf<PixPaymentUiState?>(null)
+        private set
+    var pixDirectPayment by mutableStateOf<PixDirectPaymentUiState?>(null)
         private set
 
     val subtotal: Double
@@ -229,6 +261,7 @@ class CartHolder {
         isPlacingOrder = true
         scope.launch {
             try {
+                val normalizedPayment = normalizePaymentMethod(paymentMethod)
                 val order = Order(
                     id = "",
                     storeId = storeId ?: "",
@@ -238,12 +271,12 @@ class CartHolder {
                     deliveryFee = effectiveDeliveryFee,
                     discount = couponDiscount,
                     total = total,
-                    paymentMethod = paymentMethod,
+                    paymentMethod = normalizedPayment,
                     deliveryAddress = deliveryAddressSummary(),
-                    status = "recebido",
+                    status = initialOrderStatus(normalizedPayment),
                     createdAt = ""
                 )
-                val changeFor = changeForAmount.toDoubleOrNull()
+                val changeFor = changeForAmount.replace(",", ".").trim().toDoubleOrNull()
                 val result = SupabaseApi.submitOrder(
                     order = order,
                     clientId = userId,
@@ -269,6 +302,99 @@ class CartHolder {
     fun dismissSuccess() {
         placedOrder = null
         clearCart()
+    }
+
+    // ------------------------------------------------------------------
+    // PIX — porte de OrdersViewModel.generatePixPayment / openPixDirectPayment
+    // / uploadPixDirectProof do app original.
+    // ------------------------------------------------------------------
+
+    fun generatePixPayment(order: Order) {
+        val uid = try { secureStorage.get(KEY_USER_ID) } catch (_: Throwable) { null }
+        val token = try { secureStorage.get(KEY_ACCESS_TOKEN) } catch (_: Throwable) { null }
+        val payerName = try { secureStorage.get("session_user_name") } catch (_: Throwable) { null }.orEmpty()
+        val payerDoc = try { secureStorage.get("session_user_cpf") } catch (_: Throwable) { null }.orEmpty()
+        if (uid.isNullOrBlank() || token.isNullOrBlank()) {
+            orderError = "Sua sessão expirou. Entre novamente para pagar com PIX."
+            return
+        }
+        pixPayment = PixPaymentUiState(order = order, isLoading = true)
+        scope.launch {
+            val response = SupabaseApi.generatePixForOrder(order, payerName, payerDoc, token)
+            pixPayment = if (response.isSuccess) {
+                PixPaymentUiState(
+                    order = order,
+                    pixCode = response.pixCode,
+                    qrCodeBase64 = response.qrCodeBase64
+                )
+            } else {
+                PixPaymentUiState(
+                    order = order,
+                    errorMessage = response.errorMessage ?: "Não foi possível gerar o PIX."
+                )
+            }
+        }
+    }
+
+    fun dismissPixPayment() {
+        pixPayment = null
+    }
+
+    fun openPixDirectPayment(order: Order) {
+        pixDirectPayment = PixDirectPaymentUiState(order = order)
+        scope.launch {
+            val store = try { SupabaseApi.fetchStoreById(order.storeId) } catch (_: Throwable) { null }
+            if (store == null || !store.pixDirectEnabled || store.pixDirectKey.isBlank()) {
+                pixDirectPayment = PixDirectPaymentUiState(
+                    order = order,
+                    errorMessage = "A chave PIX direto desta loja não está disponível."
+                )
+                return@launch
+            }
+            pixDirectPayment = PixDirectPaymentUiState(
+                order = order,
+                storeName = store.name,
+                pixKey = store.pixDirectKey,
+                pixKeyType = store.pixDirectKeyType,
+                beneficiary = store.pixDirectBeneficiary,
+                instructions = store.pixDirectInstructions
+            )
+        }
+    }
+
+    fun uploadPixDirectProof(bytes: ByteArray, mimeType: String, extension: String) {
+        val state = pixDirectPayment ?: return
+        val order = state.order ?: return
+        val token = try { secureStorage.get(KEY_ACCESS_TOKEN) } catch (_: Throwable) { null }
+        if (token.isNullOrBlank()) {
+            pixDirectPayment = state.copy(errorMessage = "Sua sessão expirou. Entre novamente para enviar o comprovante.")
+            return
+        }
+        pixDirectPayment = state.copy(isUploading = true, errorMessage = null)
+        scope.launch {
+            val result = SupabaseApi.uploadPixDirectProof(
+                orderId = order.id,
+                storeId = order.storeId,
+                bytes = bytes,
+                mimeType = mimeType,
+                extension = extension,
+                accessToken = token
+            )
+            val current = pixDirectPayment ?: state
+            pixDirectPayment = result.fold(
+                onSuccess = { current.copy(isUploading = false, proofSent = true) },
+                onFailure = { e ->
+                    current.copy(
+                        isUploading = false,
+                        errorMessage = e.message ?: "Não foi possível enviar o comprovante."
+                    )
+                }
+            )
+        }
+    }
+
+    fun dismissPixDirectPayment() {
+        pixDirectPayment = null
     }
 
     fun deliveryAddressSummary(): String {
