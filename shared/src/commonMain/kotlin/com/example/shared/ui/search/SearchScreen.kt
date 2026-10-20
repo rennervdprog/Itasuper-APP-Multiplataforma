@@ -49,9 +49,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -85,21 +87,30 @@ import com.example.shared.generated.resources.ic_cat_pizzaria_3d
 import com.example.shared.generated.resources.Res
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
+import com.example.shared.model.Coupon
 import com.example.shared.model.DiscoverProduct
+import com.example.shared.model.Product
 import com.example.shared.model.Store
+import com.example.shared.model.StoreWithCoupon
+import com.example.shared.network.SupabaseApi
+import com.example.shared.platform.LocationProvider
+import com.example.shared.session.UserSessionRepository
 import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ManropeFontFamily
-import com.example.shared.ui.mock.mockProducts
-import com.example.shared.ui.mock.mockStores
+import com.example.shared.ui.cart.CartHolder
+import com.example.shared.ui.common.StoreSwitchBottomSheet
 import com.example.shared.ui.permissions.LocationAndPermissionsDialog
 import com.example.shared.ui.permissions.PlatformPermissions
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 
 /**
  * Tela Descobrir/Busca — migração do SearchScreen do app Android (Itasuper-APP-NATIVO).
  * Layout idêntico ao original (tokens, textos, ordem, espaçamentos, tamanhos).
- * Versão com dados mockados (a rede real vem na fase-rede); sem ViewModel/Android.
+ * Dados 100% reais (SupabaseApi + sessão), com a mesma lógica do
+ * SearchViewModel do original: região pela cidade efetiva, lojas de teste
+ * fora, produtos/cupons/pedidos reais — nada de dados mockados.
  */
 
 // ===== Tokens visuais do protótipo (idênticos ao app Android) =====
@@ -163,10 +174,11 @@ private data class OrderAgainItem(
     val storeId: String,
     val storeName: String,
     val price: Double,
-    val imageUrl: String
+    val imageUrl: String,
+    val product: Product
 )
 
-// ===== Mocks da Descoberta (TODO fase-rede: remover quando o SupabaseClient via Ktor estiver pronto) =====
+// ===== Categorias da busca (mesma lista fixa do StoreRepository do original) =====
 
 private val discoverCategories = listOf(
     SearchCategory("lanches", "Lanches", listOf("lanchonete", "hamburgueria", "lanches", "lanche", "burger")),
@@ -180,40 +192,190 @@ private val discoverCategories = listOf(
     SearchCategory("churrasco", "Churrasco", listOf("churrascaria", "carnes", "churrasco", "carne"))
 )
 
-private val discoverRecentSearches = listOf("pastel", "pizza", "marmita")
+// ===== Lógica da Descoberta (porte do SearchViewModel do app original) =====
 
-private val discoverPromoBanners = listOf(
-    PromoBanner(id = "b1", tag = "Cupom", title = "20% OFF", subtitle = "na Doceria da Cleide", storeId = "s2"),
-    PromoBanner(id = "b2", tag = "Oferta", title = "Frete grátis", subtitle = "em lanches selecionados", storeId = "s1"),
-    PromoBanner(id = "b3", tag = "Novo", title = "Açaí geladinho", subtitle = "peça agora no Gelobol", storeId = "s3")
-)
-
-private val discoverCollections = listOf(
-    DiscoverCollection(
-        id = "c1",
-        title = "Pra matar a fome",
-        subtitle = "Lanches e pizzas",
-        stores = mockStores.take(3),
-        backgroundColor = 0xFFFFF4EC,
-        saved = false
-    ),
-    DiscoverCollection(
-        id = "c2",
-        title = "Doces da tarde",
-        subtitle = "Sobremesas",
-        stores = mockStores.drop(1).take(2),
-        backgroundColor = 0xFFFFF4EC,
-        saved = true
+/** Normalização de texto da busca: minúsculas, sem acentos, sem espaços nas pontas. */
+private fun normalizeSearchText(value: String): String {
+    var result = value.lowercase().trim()
+    val replacements = mapOf(
+        'á' to 'a', 'à' to 'a', 'ã' to 'a', 'â' to 'a', 'ä' to 'a',
+        'é' to 'e', 'ê' to 'e', 'ë' to 'e',
+        'í' to 'i', 'î' to 'i', 'ï' to 'i',
+        'ó' to 'o', 'ô' to 'o', 'õ' to 'o', 'ö' to 'o',
+        'ú' to 'u', 'û' to 'u', 'ü' to 'u',
+        'ç' to 'c', 'ñ' to 'n'
     )
+    result = result.map { replacements[it] ?: it }.joinToString("")
+    return result
+}
+
+/** Lojas de teste/QA nunca aparecem na Descobrir (ex.: "Playwright Audit Loja"). */
+private fun isTestStore(store: Store): Boolean {
+    val n = store.name.lowercase()
+    return n.contains("playwright") || n.contains("audit") ||
+        n.contains("teste") || n.contains("test")
+}
+
+/** Badge do cupom real, ex.: "-20%" ou "-R$10". */
+private fun couponBadgeText(discountType: String, discountValue: Double): String =
+    if (discountType.equals("percent", ignoreCase = true) || discountType.equals("percentage", ignoreCase = true))
+        "-${discountValue.toInt()}%"
+    else
+        "-R$${discountValue.toInt()}"
+
+/** Descrição legível do cupom real em pt-BR. */
+private fun couponDescriptionText(coupon: Coupon): String {
+    val parts = mutableListOf<String>()
+    val discount = if (coupon.discountType.equals("percent", ignoreCase = true) ||
+        coupon.discountType.equals("percentage", ignoreCase = true)
+    ) "${coupon.discountValue.toInt()}% de desconto"
+    else "${dscMoney(coupon.discountValue)} de desconto"
+    parts += discount
+    if (coupon.minOrderValue > 0) parts += "em pedidos acima de ${dscMoney(coupon.minOrderValue)}"
+    if (coupon.firstOrderOnly) parts += "só na 1ª compra"
+    return parts.joinToString(" • ")
+}
+
+/** Converte ISO-8601 em millis. 0 = sem expiração/ilegível. */
+private fun parseIsoToMillis(iso: String?): Long {
+    if (iso.isNullOrBlank()) return 0L
+    val clean = iso.trim()
+    return try {
+        kotlinx.datetime.Instant.parse(clean).toEpochMilliseconds()
+    } catch (_: Throwable) {
+        try {
+            val noFraction = clean.substringBefore(".")
+            val withZone = if (noFraction.endsWith("Z") || Regex("[+-]\\d{2}:?\\d{2}$").containsMatchIn(noFraction)) noFraction else "${noFraction}Z"
+            kotlinx.datetime.Instant.parse(withZone).toEpochMilliseconds()
+        } catch (_: Throwable) {
+            0L
+        }
+    }
+}
+
+/** Política única dos chips da Descoberta (igual ao original). */
+private fun matchesQuickFilter(
+    store: Store,
+    filter: DiscoverQuickFilter?,
+    couponStoreIds: Set<String>,
+    cheapStoreIds: Set<String>
+): Boolean = when (filter) {
+    null -> true
+    DiscoverQuickFilter.FREE -> store.isFreeDelivery
+    DiscoverQuickFilter.TOP -> store.rating >= 4.5
+    DiscoverQuickFilter.FAST -> (maxDeliveryMinutes(store.deliveryTime) ?: Int.MAX_VALUE) <= 30
+    DiscoverQuickFilter.COUPON -> store.id in couponStoreIds
+    DiscoverQuickFilter.CHEAP -> store.id in cheapStoreIds
+}
+
+/** Aliases de categoria (mesma tabela do StoreRepository do original). */
+private val SEARCH_CATEGORY_ALIASES: Map<String, List<String>> = mapOf(
+    "lanches" to listOf("lanche", "lanches", "hamburguer", "hamburgueria", "burger", "sanduiche", "hot dog", "cachorro quente", "fast food", "batata"),
+    "pizzaria" to listOf("pizza", "pizzas", "pizzaria"),
+    "marmita" to listOf("marmita", "marmitas", "refeicao", "almoco", "comida caseira", "restaurante"),
+    "pastel" to listOf("pastel", "pasteis", "pastelaria", "feira"),
+    "acai" to listOf("acai", "sorvete", "sorveteria", "gelato", "sobremesa"),
+    "bebidas" to listOf("bebida", "bebidas", "conveniencia", "distribuidora", "bar", "adega"),
+    "mercado" to listOf("mercado", "mercados", "supermercado", "mercearia", "minimercado", "hortifruti", "padaria"),
+    "farmacias" to listOf("farmacia", "farmacias", "drogaria", "perfumaria"),
+    "churrasco" to listOf("churrasco", "espetinho", "espetos", "grill", "carnes", "churrascaria")
 )
 
-private val discoverOrderAgain = listOf(
-    OrderAgainItem("p1", "Pastel de Carne", "s1", "Pastelão Carioca", 12.90, ""),
-    OrderAgainItem("p3", "Bolo de Chocolate", "s2", "Doceria da Cleide", 18.00, ""),
-    OrderAgainItem("p4", "Açaí 500ml", "s3", "Gelobol Açaí", 16.90, "")
-)
+private fun normalizeCategoryKey(value: String): String =
+    normalizeSearchText(value).replace(Regex("[^a-z0-9]+"), " ").trim().replace(Regex("\\s+"), " ")
 
-private val discoverCouponStoreIds = setOf("s2")
+private fun matchesSearchCategory(categoryId: String?, store: Store): Boolean {
+    val selectedKey = normalizeCategoryKey(categoryId.orEmpty())
+    if (selectedKey.isBlank()) return true
+    val storeCategory = normalizeCategoryKey(store.category)
+    if (storeCategory == selectedKey) return true
+    val aliases = SEARCH_CATEGORY_ALIASES[selectedKey].orEmpty().map { normalizeCategoryKey(it) }
+    return aliases.filter { it.isNotBlank() }.any { alias ->
+        storeCategory == alias ||
+            (storeCategory.isNotBlank() && (storeCategory.contains(alias) || alias.contains(storeCategory))) ||
+            normalizeCategoryKey(store.name).let { name ->
+                name.isNotBlank() && (name.contains(alias) || alias.contains(name))
+            }
+    }
+}
+
+/** "Ofertas do dia": cupons reais ativos (countdown só com expiração real). */
+private fun buildDailyDeals(coupons: List<Coupon>): List<DailyDeal> {
+    val now = Clock.System.now().toEpochMilliseconds()
+    return coupons.mapNotNull { coupon ->
+        if (coupon.code.isBlank()) return@mapNotNull null
+        val endsAt = parseIsoToMillis(coupon.expiresAt)
+        if (!coupon.expiresAt.isNullOrBlank() && endsAt in 1 until now) return@mapNotNull null
+        DailyDeal(
+            id = coupon.id.ifBlank { coupon.code },
+            title = coupon.code.uppercase(),
+            description = couponDescriptionText(coupon),
+            discountBadge = couponBadgeText(coupon.discountType, coupon.discountValue),
+            endsAtMillis = endsAt,
+            storeId = coupon.storeId?.takeIf { it.isNotBlank() }
+        )
+    }.take(6).mapIndexed { index, deal -> deal.copy(tall = index % 2 == 0) }
+}
+
+/** Coleções dinâmicas de dados reais da cidade. Só aparece quem tem loja. */
+private fun buildDiscoverCollections(
+    stores: List<Store>,
+    couponStoreIds: Set<String>,
+    savedIds: Set<String>
+): List<DiscoverCollection> {
+    val nowMs = Clock.System.now().toEpochMilliseconds()
+    val thirtyDaysAgoMs = nowMs - 30L * 24 * 3600 * 1000
+    val thirtyDaysAgo = kotlinx.datetime.Instant.fromEpochMilliseconds(thirtyDaysAgoMs)
+        .toString().substringBefore(".")
+    return buildList {
+        val onSale = stores.filter { it.id in couponStoreIds }
+        if (onSale.isNotEmpty()) add(
+            DiscoverCollection(
+                id = "em_oferta",
+                title = "Em oferta",
+                subtitle = "${onSale.size} ${if (onSale.size == 1) "loja" else "lojas"} com cupom",
+                stores = onSale.sortedByDescending { it.rating }.take(3),
+                backgroundColor = 0xFFFFF4EC,
+                saved = "em_oferta" in savedIds
+            )
+        )
+        val topRated = stores.filter { it.rating >= 4.5 }
+        if (topRated.isNotEmpty()) add(
+            DiscoverCollection(
+                id = "bem_avaliados",
+                title = "Bem avaliados",
+                subtitle = "${topRated.size} ${if (topRated.size == 1) "loja" else "lojas"} nota 4.5+",
+                stores = topRated.sortedByDescending { it.rating }.take(3),
+                backgroundColor = 0xFFE8F5E9,
+                saved = "bem_avaliados" in savedIds
+            )
+        )
+        val freeDelivery = stores.filter { it.isFreeDelivery }
+        if (freeDelivery.isNotEmpty()) add(
+            DiscoverCollection(
+                id = "entrega_gratis",
+                title = "Entrega grátis",
+                subtitle = "${freeDelivery.size} ${if (freeDelivery.size == 1) "loja" else "lojas"} sem taxa",
+                stores = freeDelivery.sortedByDescending { it.rating }.take(3),
+                backgroundColor = 0xFFE3F2FD,
+                saved = "entrega_gratis" in savedIds
+            )
+        )
+        val newOnes = stores.filter { store ->
+            store.createdAt.isNotBlank() && store.createdAt >= thirtyDaysAgo
+        }
+        if (newOnes.isNotEmpty()) add(
+            DiscoverCollection(
+                id = "novidades",
+                title = "Novidades",
+                subtitle = "${newOnes.size} ${if (newOnes.size == 1) "loja nova" else "lojas novas"}",
+                stores = newOnes.sortedByDescending { it.createdAt }.take(3),
+                backgroundColor = 0xFFF3E5F5,
+                saved = "novidades" in savedIds
+            )
+        )
+    }
+}
 
 // ===== Formatação (sem String.format / sem java.util.Locale) =====
 
@@ -257,90 +419,243 @@ private fun maxDeliveryMinutes(deliveryTime: String): Int? {
 }
 
 @Composable
-fun SearchScreen(onStoreClick: (String) -> Unit) {
+fun SearchScreen(
+    onStoreClick: (String) -> Unit,
+    initialCategory: String? = null,
+    cart: CartHolder? = null
+) {
+    val session by UserSessionRepository.session.collectAsState()
+    val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
+    var debouncedQuery by remember { mutableStateOf("") }
     var selectedCategoryId by remember { mutableStateOf<String?>(null) }
     var quickFilter by remember { mutableStateOf<DiscoverQuickFilter?>(null) }
-    var savedCollectionIds by remember { mutableStateOf(setOf("c2")) }
-    var recentTerms by remember { mutableStateOf(discoverRecentSearches) }
+    var savedCollectionIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var recentTerms by remember { mutableStateOf(SearchHistory.load()) }
     var isLoadingDiscovery by remember { mutableStateOf(true) }
     // ITEM 6/6: diálogo contextual de permissão de localização (espelha o
     // SearchScreen do app Android).
     var showLocationPermissionDialog by remember { mutableStateOf(false) }
+    // Troca de loja pendente ao pedir de novo um item de outra loja.
+    var pendingReorder by remember { mutableStateOf<OrderAgainItem?>(null) }
 
-    // Skeleton breve na primeira pintura, como no app original enquanto carrega.
+    // Categoria inicial (vinda da rota/Home), aplicada uma única vez.
+    // Id desconhecido é ignorado — a Busca abre completa (regra do original).
+    var initialCategoryApplied by remember { mutableStateOf(false) }
+    LaunchedEffect(initialCategory) {
+        if (!initialCategoryApplied) {
+            initialCategoryApplied = true
+            val wanted = initialCategory?.trim().orEmpty()
+            if (wanted.isNotBlank()) {
+                selectedCategoryId = discoverCategories
+                    .firstOrNull { it.id.equals(wanted, ignoreCase = true) }?.id
+            }
+        }
+    }
+
+    // Debounce de 250 ms da digitação (igual ao SearchViewModel do original).
+    LaunchedEffect(query) {
+        delay(250)
+        debouncedQuery = query
+    }
+
+    // Catálogo público de lojas (mesma fonte da Home).
+    var allStores by remember { mutableStateOf<List<Store>>(emptyList()) }
     LaunchedEffect(Unit) {
-        delay(900)
+        try {
+            val result = SupabaseApi.fetchActiveStores()
+            if (result.isSuccess) allStores = result.stores
+        } catch (_: Throwable) {
+            // Sem rede: região fica vazia (nada de dado mockado).
+        }
+    }
+
+    // Região = cidade efetiva (GPS ativo, senão cadastro); sem cidade = vazio;
+    // lojas de teste fora (só na Descobrir, como no original).
+    val activeCity = session.activeLocationCity.ifBlank { session.addressCity }
+    val regionalStores = remember(allStores, activeCity) {
+        val cityKey = normalizeSearchText(activeCity)
+        if (cityKey.isBlank()) emptyList()
+        else allStores.filter {
+            normalizeSearchText(it.addressCity) == cityKey && !isTestStore(it)
+        }
+    }
+
+    // Produtos da descoberta + lojas com cupom da região.
+    var searchableProducts by remember { mutableStateOf<List<DiscoverProduct>>(emptyList()) }
+    var storesWithCoupons by remember { mutableStateOf<List<StoreWithCoupon>>(emptyList()) }
+    val regionalKey = regionalStores.joinToString(",") { it.id }
+    LaunchedEffect(regionalKey) {
+        isLoadingDiscovery = true
+        try {
+            val openStores = regionalStores.filter { it.isOpen }
+            val eligibleStores = openStores.ifEmpty { regionalStores }
+            searchableProducts = SupabaseApi.fetchDiscoverProducts(eligibleStores, limit = 60)
+        } catch (_: Throwable) {
+            searchableProducts = emptyList()
+        }
+        try {
+            val ids = regionalStores.map { it.id }.toSet()
+            storesWithCoupons = SupabaseApi.fetchStoresWithCoupons(limit = 20)
+                .filter { it.storeId in ids }
+        } catch (_: Throwable) {
+            storesWithCoupons = emptyList()
+        }
         isLoadingDiscovery = false
     }
 
-    val selectedCategory = discoverCategories.firstOrNull { it.id == selectedCategoryId }
-    val isSearchActive = query.length >= 2 || selectedCategory != null || quickFilter != null
+    // Ofertas do dia: cupons reais ativos.
+    var dailyDeals by remember { mutableStateOf<List<DailyDeal>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        dailyDeals = try {
+            buildDailyDeals(SupabaseApi.fetchActiveCoupons(limit = 10))
+        } catch (_: Throwable) {
+            emptyList()
+        }
+    }
 
-    val filteredStores = remember(query, selectedCategoryId, quickFilter) {
-        mockStores.filter { store ->
-            val q = query.trim().lowercase()
-            val matchQuery = q.length < 2 ||
-                store.name.lowercase().contains(q) ||
-                store.category.lowercase().contains(q)
-            val matchCategory = selectedCategory == null ||
-                selectedCategory.matchingTerms.any { term ->
-                    store.name.lowercase().contains(term) ||
-                        store.category.lowercase().contains(term)
-                }
-            val matchFilter = when (quickFilter) {
-                null -> true
-                DiscoverQuickFilter.FREE -> store.isFreeDelivery
-                DiscoverQuickFilter.TOP -> store.rating >= 4.5
-                DiscoverQuickFilter.FAST -> (maxDeliveryMinutes(store.deliveryTime) ?: Int.MAX_VALUE) <= 30
-                DiscoverQuickFilter.COUPON -> store.id in discoverCouponStoreIds
-                DiscoverQuickFilter.CHEAP -> true
+    // "Peça de novo": pratos distintos do histórico real de pedidos.
+    var orderAgainItems by remember { mutableStateOf<List<OrderAgainItem>>(emptyList()) }
+    LaunchedEffect(session.userId) {
+        if (session.userId.isNotBlank() && session.accessToken.isNotBlank()) {
+            try {
+                val orders = SupabaseApi.fetchOrdersForClient(session.userId, session.accessToken)
+                orderAgainItems = orders
+                    .flatMap { order -> order.items.map { it to order } }
+                    .distinctBy { (item, _) -> item.product.id }
+                    .take(8)
+                    .map { (item, order) ->
+                        OrderAgainItem(
+                            productId = item.product.id,
+                            productName = item.product.name,
+                            storeId = item.product.storeId,
+                            storeName = order.storeName,
+                            price = item.unitPrice,
+                            imageUrl = item.product.imageUrl,
+                            product = item.product
+                        )
+                    }
+            } catch (_: Throwable) {
+                // Histórico indisponível: a seção some (sem dados mockados).
             }
-            matchQuery && matchCategory && matchFilter
         }
     }
-    val filteredProducts = remember(query) {
-        val q = query.trim().lowercase()
-        mockProducts.filter { product ->
-            q.length < 2 ||
-                product.name.lowercase().contains(q) ||
-                product.storeName.lowercase().contains(q)
-        }
+
+    val couponStoreIds = remember(storesWithCoupons) {
+        storesWithCoupons.map { it.storeId }.toSet()
     }
-    val dailyDeals = remember {
-        val now = Clock.System.now().toEpochMilliseconds()
-        listOf(
-            DailyDeal(
-                id = "d1",
-                title = "Pastel + caldo de cana",
-                description = "Pastelão Carioca",
-                discountBadge = "-20%",
-                endsAtMillis = now + 5 * 3600_000,
-                tall = true,
-                storeId = "s1"
-            ),
-            DailyDeal(
-                id = "d2",
-                title = "Bolo de pote",
-                description = "Doceria da Cleide",
-                discountBadge = "-15%",
-                endsAtMillis = now + 2 * 3600_000,
-                tall = false,
-                storeId = "s2"
-            ),
-            DailyDeal(
-                id = "d3",
-                title = "Açaí 500ml",
-                description = "Gelobol Açaí",
-                discountBadge = "-10%",
-                endsAtMillis = now + 8 * 3600_000,
-                tall = false,
-                storeId = "s3"
+    val cheapStoreIds = remember(searchableProducts) {
+        searchableProducts.filter { it.price <= 30.0 }.map { it.storeId }.toSet()
+    }
+    val featuredProducts = remember(searchableProducts) { searchableProducts.take(6) }
+    val trendingStores = remember(regionalStores) {
+        regionalStores.filter { it.isOpen && (it.logoUrl.isNotBlank() || it.bannerUrl.isNotBlank()) }
+            .sortedByDescending { it.rating }
+            .take(8)
+    }
+    val recommendedStores = remember(regionalStores) {
+        regionalStores.filter { it.isOpen }
+            .sortedWith(compareByDescending<Store> { it.rating }.thenBy { it.distanceKm ?: Double.MAX_VALUE })
+            .take(8)
+    }
+    val utilityStores = remember(regionalStores) {
+        val utilityTerms = setOf("farmacia", "pet", "mercado", "supermercado", "conveniencia", "padaria")
+        regionalStores.filter { store ->
+            val cats = (listOf(store.category) + store.secondaryCategories).map { normalizeSearchText(it) }
+            utilityTerms.any { term -> cats.any { it.contains(term) } }
+        }.sortedWith(compareByDescending<Store> { it.isOpen }.thenByDescending { it.rating }).take(6)
+    }
+    val promoBanners = remember(storesWithCoupons) {
+        storesWithCoupons.take(5).map { swc ->
+            PromoBanner(
+                id = "coupon_${swc.storeId}_${swc.couponCode}",
+                title = couponBadgeText(swc.discountType, swc.discountValue),
+                subtitle = "${swc.storeName} • Cupom ${swc.couponCode}",
+                storeId = swc.storeId,
+                imageUrl = swc.storeLogoUrl.orEmpty()
             )
-        )
+        }
     }
-    val collections = remember(savedCollectionIds) {
-        discoverCollections.map { it.copy(saved = it.id in savedCollectionIds) }
+    val collections = remember(regionalStores, couponStoreIds, savedCollectionIds) {
+        buildDiscoverCollections(regionalStores, couponStoreIds, savedCollectionIds)
+    }
+
+    val selectedCategory = discoverCategories.firstOrNull { it.id == selectedCategoryId }
+    val isSearchActive = normalizeSearchText(debouncedQuery).length >= 2 ||
+        selectedCategory != null || quickFilter != null
+
+    val filteredStores = remember(
+        regionalStores, debouncedQuery, selectedCategoryId, quickFilter, couponStoreIds, cheapStoreIds
+    ) {
+        val normQuery = normalizeSearchText(debouncedQuery)
+        regionalStores.filter { store ->
+            val matchesCategory = selectedCategory == null || matchesSearchCategory(selectedCategoryId, store)
+            val matchesQuery = normQuery.length < 2 ||
+                normalizeSearchText(store.name).contains(normQuery) ||
+                (listOf(store.category) + store.secondaryCategories).any { normalizeSearchText(it).contains(normQuery) } ||
+                normalizeSearchText(store.addressNeighborhood).contains(normQuery)
+            val matchesFilter = matchesQuickFilter(store, quickFilter, couponStoreIds, cheapStoreIds)
+            matchesCategory && matchesQuery && matchesFilter
+        }.sortedWith(compareByDescending<Store> { it.isOpen }.thenByDescending { it.rating })
+    }
+    val filteredProducts = remember(
+        searchableProducts, debouncedQuery, selectedCategoryId, quickFilter,
+        regionalStores, couponStoreIds, cheapStoreIds
+    ) {
+        val q = normalizeSearchText(debouncedQuery)
+        val storesById = regionalStores.associateBy { it.id }
+        searchableProducts.filter { product ->
+            val store = storesById[product.storeId]
+            val matchesQuery = q.length < 2 ||
+                normalizeSearchText(product.name).contains(q) ||
+                normalizeSearchText(product.storeName).contains(q) ||
+                normalizeSearchText(product.storeCategory).contains(q)
+            val matchesCategory = selectedCategory == null ||
+                selectedCategory.matchingTerms.any { term ->
+                    normalizeSearchText(product.storeCategory).contains(normalizeSearchText(term))
+                } ||
+                normalizeSearchText(product.storeCategory) == normalizeSearchText(selectedCategory.name)
+            val matchesFilter = store != null &&
+                matchesQuickFilter(store, quickFilter, couponStoreIds, cheapStoreIds)
+            matchesQuery && matchesCategory && matchesFilter
+        }
+    }
+
+    // GPS: grava as coordenadas na sessão (localização ativa). A
+    // geocodificação reversa entra na Fase C — nunca endereço inventado.
+    fun fetchGpsLocation() {
+        scope.launch {
+            val coords = LocationProvider.getCurrentLocation()
+            if (coords != null) {
+                UserSessionRepository.updateActiveLocation(
+                    street = session.activeLocationStreet,
+                    number = session.activeLocationNumber,
+                    neighborhood = session.activeLocationNeighborhood,
+                    cep = session.activeLocationCep,
+                    city = session.activeLocationCity,
+                    state = session.activeLocationState,
+                    latitude = coords.first,
+                    longitude = coords.second
+                )
+            }
+        }
+    }
+
+    fun reorder(item: OrderAgainItem) {
+        val activeCart = cart ?: return
+        if (activeCart.isSwitchingStore(item.product)) {
+            pendingReorder = item
+        } else {
+            activeCart.addProduct(item.product, quantity = 1, storeName = item.storeName)
+        }
+    }
+
+    val displayCity = when {
+        activeCity.isBlank() -> ""
+        else -> {
+            val state = session.activeLocationState.ifBlank { session.addressState }
+            if (state.isNotBlank()) "$activeCity, $state" else activeCity
+        }
     }
 
     // A bottom bar é renderizada pelo App (BottomNavBar); aqui só o conteúdo.
@@ -351,30 +666,27 @@ fun SearchScreen(onStoreClick: (String) -> Unit) {
             .imePadding()
     ) {
         DiscoverAppBar(
-            city = "Araruama, RJ",
+            city = displayCity,
             query = query,
             onQueryChange = { query = it },
-            onClearQuery = { query = "" },
+            onClearQuery = { query = ""; debouncedQuery = "" },
             onLocationClick = {
                 // ITEM 6/6: espelha o SearchScreen do app Android — sem permissão,
                 // mostra o diálogo contextual de localização.
                 if (PlatformPermissions.hasLocationPermission()) {
-                    // TODO(fase-rede): buscar o GPS e atualizar a cidade do appbar.
+                    fetchGpsLocation()
                 } else {
                     showLocationPermissionDialog = true
                 }
             },
             onSubmit = {
-                val term = query.trim()
-                if (term.length >= 2 && term !in recentTerms) {
-                    recentTerms = (listOf(term) + recentTerms).take(6)
-                }
+                recentTerms = SearchHistory.add(query, recentTerms)
             }
         )
 
         if (isSearchActive) {
             DiscoverResults(
-                query = query,
+                query = debouncedQuery,
                 selectedCategory = selectedCategory,
                 selectedQuickFilter = quickFilter,
                 products = filteredProducts,
@@ -382,10 +694,15 @@ fun SearchScreen(onStoreClick: (String) -> Unit) {
                 recentSearches = recentTerms,
                 onClearAll = {
                     query = ""
+                    debouncedQuery = ""
                     selectedCategoryId = null
                     quickFilter = null
                 },
-                onRecentSearch = { query = it },
+                onRecentSearch = { term ->
+                    query = term
+                    debouncedQuery = term
+                    recentTerms = SearchHistory.add(term, recentTerms)
+                },
                 onNavigateToStore = onStoreClick
             )
         } else {
@@ -394,25 +711,39 @@ fun SearchScreen(onStoreClick: (String) -> Unit) {
                 quickFilter = quickFilter,
                 categories = discoverCategories,
                 selectedCategoryId = selectedCategoryId,
-                featuredProducts = mockProducts,
-                trendingStores = mockStores,
-                promoBanners = discoverPromoBanners,
+                featuredProducts = featuredProducts,
+                trendingStores = trendingStores,
+                promoBanners = promoBanners,
                 collections = collections,
-                orderAgainItems = discoverOrderAgain,
+                orderAgainItems = orderAgainItems,
                 dailyDeals = dailyDeals,
-                utilityStores = mockStores,
-                recommendedStores = mockStores,
-                couponStoreIds = discoverCouponStoreIds,
+                utilityStores = utilityStores,
+                recommendedStores = recommendedStores,
+                couponStoreIds = couponStoreIds,
                 onQuickFilter = { quickFilter = if (quickFilter == it) null else it },
                 onCategory = { selectedCategoryId = if (selectedCategoryId == it) null else it },
                 onToggleCollectionSaved = { id ->
                     savedCollectionIds = if (id in savedCollectionIds) savedCollectionIds - id
                     else savedCollectionIds + id
                 },
-                onReorder = {},
+                onReorder = { reorder(it) },
                 onNavigateToStore = onStoreClick
             )
         }
+    }
+
+    // Confirmação de troca de loja ao pedir de novo (estilo iFood, igual ao original).
+    val reorderPending = pendingReorder
+    if (reorderPending != null && cart != null) {
+        StoreSwitchBottomSheet(
+            currentStoreName = cart.storeName,
+            onConfirm = {
+                cart.clearCart()
+                cart.addProduct(reorderPending.product, quantity = 1, storeName = reorderPending.storeName)
+                pendingReorder = null
+            },
+            onDismiss = { pendingReorder = null }
+        )
     }
 
     // ITEM 6/6: diálogo contextual de permissão de localização (migração 1:1 do
@@ -420,8 +751,8 @@ fun SearchScreen(onStoreClick: (String) -> Unit) {
     LocationAndPermissionsDialog(
         showDialog = showLocationPermissionDialog,
         onDismiss = { showLocationPermissionDialog = false },
-        onLocationPermissionResult = { _ ->
-            // TODO(fase-rede): buscar o GPS quando a permissão for concedida.
+        onLocationPermissionResult = { granted ->
+            if (granted) fetchGpsLocation()
         }
     )
 }

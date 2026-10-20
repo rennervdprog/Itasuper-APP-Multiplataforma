@@ -3,6 +3,7 @@ package com.example.shared.model
 data class Coupon(
     val id: String = "",
     val code: String,
+    val description: String = "",
     val discountType: String = "fixed", // "fixed" or "percentage"
     val discountValue: Double,
     val minOrderValue: Double = 0.0,

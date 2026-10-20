@@ -1,5 +1,9 @@
 package com.example.shared.network
 
+import com.example.shared.model.Banner
+import com.example.shared.model.CartItem
+import com.example.shared.model.DeliveryQuoteSnapshot
+import com.example.shared.model.DiscoverProduct
 import com.example.shared.model.LegalAcceptanceMode
 import com.example.shared.model.LegalAcceptanceResult
 import com.example.shared.model.LegalChange
@@ -16,6 +20,7 @@ import com.example.shared.model.Coupon
 import com.example.shared.model.Store
 import com.example.shared.model.StoreOpeningHour
 import com.example.shared.model.StoreSettings
+import com.example.shared.model.StoreWithCoupon
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.delete
@@ -950,6 +955,7 @@ object SupabaseApi {
             Coupon(
                 id = obj["id"]?.jsonPrimitive?.content ?: return null,
                 code = obj["code"]?.jsonPrimitive?.content ?: cleanCode,
+                description = obj["description"]?.jsonPrimitive?.contentOrNull ?: "",
                 discountType = obj["discount_type"]?.jsonPrimitive?.content ?: "percentage",
                 discountValue = obj["discount_value"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
                 minOrderValue = obj["min_order_value"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
@@ -964,38 +970,161 @@ object SupabaseApi {
         }
     }
 
+    /** Double finito ou null (ausente/NaN/infinito viram null, como no original). */
+    private fun JsonObject.optFiniteDouble(key: String): Double? =
+        (this[key] as? JsonPrimitive)?.doubleOrNull?.takeIf { it.isFinite() }
+
+    private fun JsonObject.toDeliveryQuoteSnapshot(): DeliveryQuoteSnapshot = DeliveryQuoteSnapshot(
+        policyVersion = optInt("policy_version", 1),
+        distanceKm = optFiniteDouble("distance_km") ?: 0.0,
+        distanceSource = optNullableString("distance_source").orEmpty().ifBlank { "haversine" },
+        maxDeliveryKm = optFiniteDouble("max_delivery_km"),
+        destinationPrecision = optNullableString("destination_precision").orEmpty().ifBlank { "cep" },
+        storeDeliveryBase = optFiniteDouble("store_delivery_base") ?: 0.0,
+        platformFeeCustomer = optFiniteDouble("platform_fee_customer") ?: 0.0,
+        platformFeeStoreAbsorbed = optFiniteDouble("platform_fee_store_absorbed") ?: 0.0,
+        deliveryFee = optFiniteDouble("delivery_fee") ?: 0.0,
+        vipOverrideApplied = optFiniteDouble("vip_override_applied"),
+        splitMode = optNullableString("split_mode"),
+        planType = optNullableString("plan_type"),
+        freeDeliveryApplied = optBoolean("free_delivery_applied", false)
+    )
+
     /**
-     * Busca os pedidos do cliente (tabela orders).
+     * Busca os pedidos do cliente com itens e nomes de loja — porte fiel de
+     * SupabaseClient.fetchOrdersForClient do app Android (JWT do usuário,
+     * select=* em orders + nomes via stores_public + itens via order_items).
      * Retorna lista vazia em caso de erro (sem mocks).
      */
-    suspend fun fetchOrdersForClient(userId: String): List<Order> {
-        if (userId.isBlank()) return emptyList()
+    suspend fun fetchOrdersForClient(clientId: String, accessToken: String): List<Order> {
+        if (clientId.isBlank() || accessToken.isBlank()) return emptyList()
         return try {
-            val (ok, json) = restGetRaw(
-                "$SUPABASE_URL/rest/v1/orders?select=id,store_id,total,status,created_at,payment_method&client_id=eq.$userId&order=created_at.desc&limit=50"
+            val (ok, text) = restGetRaw(
+                "$SUPABASE_URL/rest/v1/orders?select=*&client_id=eq.$clientId&order=created_at.desc",
+                bearer = accessToken
             )
-            if (!ok || json.isBlank()) return emptyList()
-            val array = Json.parseToJsonElement(json).jsonArray
-            array.mapNotNull { el ->
+            if (!ok || text.isBlank()) return emptyList()
+            val ordersArray = parseArray(text)
+            if (ordersArray.isEmpty()) return emptyList()
+
+            val orderIds = ordersArray.mapNotNull {
+                it.jsonObject.optString("id").takeIf { id -> id.isNotBlank() }
+            }
+            val storeIds = ordersArray.mapNotNull {
+                it.jsonObject.optString("store_id").takeIf { id -> id.isNotBlank() }
+            }.distinct()
+            val storesById = fetchStoreNames(storeIds, accessToken)
+            val itemsByOrder = fetchOrderItems(orderIds, accessToken)
+
+            ordersArray.mapNotNull { el ->
                 try {
-                    val o = el.jsonObject
+                    val item = el.jsonObject
+                    val id = item.optString("id")
+                    val storeId = item.optString("store_id")
+                    if (id.isBlank() || storeId.isBlank()) return@mapNotNull null
                     Order(
-                        id = o["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
-                        storeId = o["store_id"]?.jsonPrimitive?.content ?: "",
-                        storeName = "", // Será preenchido via join se necessário
-                        items = emptyList(), // Itens carregados separadamente se necessário
-                        subtotal = 0.0,
-                        deliveryFee = 0.0,
-                        total = o["total"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
-                        paymentMethod = o["payment_method"]?.jsonPrimitive?.content ?: "",
-                        deliveryAddress = "",
-                        status = o["status"]?.jsonPrimitive?.content ?: "",
-                        createdAt = o["created_at"]?.jsonPrimitive?.content ?: ""
+                        id = id,
+                        storeId = storeId,
+                        storeName = storesById[storeId].orEmpty(),
+                        items = itemsByOrder[id].orEmpty(),
+                        subtotal = item.optDouble("subtotal", 0.0),
+                        deliveryFee = item.optDouble("delivery_fee", 0.0),
+                        discount = item.optDouble("discount", item.optDouble("coupon_discount", 0.0)),
+                        walletDiscount = item.optDouble("wallet_discount", 0.0),
+                        loyaltyPointsUsed = item.optInt("loyalty_points_used", 0),
+                        loyaltyDiscount = item.optDouble("loyalty_discount", 0.0),
+                        total = item.optDouble("total_price", 0.0),
+                        paymentMethod = item.optString("payment_method"),
+                        deliveryAddress = item.optString("address_details"),
+                        status = item.optString("status", "pendente"),
+                        createdAt = item.optString("created_at"),
+                        confirmedAt = item.optString("confirmed_at"),
+                        refundRequestExpiresAt = item.optString("refund_request_expires_at"),
+                        pixExpiresAt = item.optString("pix_expires_at"),
+                        deliveryPin = item.optString("delivery_pin"),
+                        neighborhood = item.optString("neighborhood"),
+                        deliveryCep = item.optString("delivery_cep"),
+                        deliveryCity = item.optString("delivery_city"),
+                        deliveryState = item.optString("delivery_state"),
+                        clientLatitude = item.optFiniteDouble("client_lat"),
+                        clientLongitude = item.optFiniteDouble("client_lng"),
+                        deliveryFeeAbsorbedByStore = item.optDouble("delivery_fee_absorbed_by_store", 0.0),
+                        deliveryQuoteSnapshot = item.optJsonObject("metadata")
+                            ?.optJsonObject("delivery_quote")
+                            ?.toDeliveryQuoteSnapshot(),
+                        driverId = item.optString("driver_id", item.optString("assigned_driver_id")),
+                        deliveryConfirmedByClient = item.optBoolean("delivery_confirmed_by_client", false),
+                        scheduledFor = item.optString("scheduled_for"),
+                        releaseAt = item.optString("release_at")
                     )
                 } catch (_: Exception) { null }
             }
         } catch (_: Exception) {
             emptyList()
+        }
+    }
+
+    /** Nomes das lojas dos pedidos (stores_public), com o JWT do usuário. */
+    private suspend fun fetchStoreNames(storeIds: List<String>, bearer: String): Map<String, String> {
+        if (storeIds.isEmpty()) return emptyMap()
+        return try {
+            val ids = storeIds.joinToString(",")
+            val (ok, text) = restGetRaw(
+                "$SUPABASE_URL/rest/v1/stores_public?select=id,name&id=in.($ids)",
+                bearer = bearer
+            )
+            if (!ok || text.isBlank()) return emptyMap()
+            buildMap {
+                for (el in parseArray(text)) {
+                    val item = el.jsonObject
+                    val id = item.optString("id")
+                    if (id.isNotBlank()) put(id, item.optString("name"))
+                }
+            }
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
+    /**
+     * Itens dos pedidos com o produto embutido. Igual ao original, os
+     * adicionais gravados em pedidos antigos NÃO são reconstruídos aqui.
+     */
+    private suspend fun fetchOrderItems(orderIds: List<String>, bearer: String): Map<String, List<CartItem>> {
+        if (orderIds.isEmpty()) return emptyMap()
+        return try {
+            val ids = orderIds.joinToString(",")
+            val (ok, text) = restGetRaw(
+                "$SUPABASE_URL/rest/v1/order_items?select=order_id,product_id,quantity,unit_price,addons,observations,products(id,store_id,name,description,price,image_url)&order_id=in.($ids)",
+                bearer = bearer
+            )
+            if (!ok || text.isBlank()) return emptyMap()
+            val result = mutableMapOf<String, MutableList<CartItem>>()
+            for (el in parseArray(text)) {
+                val item = el.jsonObject
+                val orderId = item.optString("order_id")
+                val productJson = item.optJsonObject("products") ?: continue
+                if (orderId.isBlank()) continue
+                val product = Product(
+                    id = productJson.optString("id", item.optString("product_id")),
+                    storeId = productJson.optString("store_id"),
+                    name = productJson.optString("name", "Produto"),
+                    description = productJson.optString("description"),
+                    price = item.optDouble("unit_price", productJson.optDouble("price", 0.0)),
+                    category = productJson.optString("category"),
+                    imageUrl = productJson.optString("image_url")
+                )
+                result.getOrPut(orderId) { mutableListOf() }.add(
+                    CartItem(
+                        product = product,
+                        quantity = item.optInt("quantity", 1),
+                        notes = item.optString("observations")
+                    )
+                )
+            }
+            result
+        } catch (_: Exception) {
+            emptyMap()
         }
     }
 
@@ -1893,6 +2022,133 @@ object SupabaseApi {
             }
         } catch (_: Exception) {
             "Não foi possível excluir a conta. Tente novamente."
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // (f) DESCOBERTA — porte de SupabaseClient.fetchDiscoverProducts,
+    // fetchActiveCoupons, fetchStoresWithCoupons e fetchBanners do Android.
+    // ------------------------------------------------------------------
+
+    /**
+     * Produtos das lojas informadas para a Descoberta (porte fiel do original:
+     * select=*, nome/categoria da loja resolvidos pelo mapa de lojas, sem
+     * fallback fictício — lista vazia quando não há produtos reais).
+     */
+    suspend fun fetchDiscoverProducts(
+        openStores: List<Store>,
+        limit: Int = 8,
+        orderByPrice: Boolean = false
+    ): List<DiscoverProduct> {
+        if (openStores.isEmpty()) return emptyList()
+        return try {
+            val idFilter = openStores.joinToString(",") { it.id }
+            val ordering = if (orderByPrice) "&price=gt.0&order=price.asc" else ""
+            val (ok, text) = restGetRaw(
+                "$SUPABASE_URL/rest/v1/products?select=*&is_available=eq.true&store_id=in.($idFilter)$ordering&limit=$limit"
+            )
+            if (!ok || text.isBlank()) return emptyList()
+            val storeMap = openStores.associateBy { it.id }
+            parseArray(text).mapNotNull { el ->
+                val item = el.jsonObject
+                val id = item.optString("id")
+                val sId = item.optString("store_id")
+                val name = item.optString("name")
+                if (id.isBlank() || name.isBlank()) return@mapNotNull null
+                DiscoverProduct(
+                    id = id,
+                    storeId = sId,
+                    storeName = storeMap[sId]?.name ?: "Loja ItaSuper",
+                    storeCategory = storeMap[sId]?.category ?: "",
+                    name = name,
+                    price = item.optDouble("price", 0.0),
+                    imageUrl = item.optString("image_url")
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Cupons ativos da vitrine pública (view coupons_public, ANON). */
+    suspend fun fetchActiveCoupons(limit: Int = 10): List<Coupon> {
+        return try {
+            val (ok, text) = restGetRaw(
+                "$SUPABASE_URL/rest/v1/coupons_public?select=*&is_active=eq.true&order=expires_at.asc.nullslast&limit=$limit"
+            )
+            if (!ok || text.isBlank()) return emptyList()
+            parseArray(text).map { el ->
+                val o = el.jsonObject
+                Coupon(
+                    id = o.optString("id"),
+                    code = o.optString("code"),
+                    description = o.optString("description"),
+                    discountType = o.optString("discount_type", "fixed"),
+                    discountValue = o.optDouble("discount_value", 0.0),
+                    minOrderValue = o.optDouble("min_order_value", 0.0),
+                    expiresAt = o.optNullableString("expires_at"),
+                    firstOrderOnly = o.optBoolean("first_order_only", false),
+                    maxUses = (o["max_uses"] as? JsonPrimitive)?.intOrNull,
+                    usedCount = o.optInt("used_count", 0),
+                    isActive = o.optBoolean("is_active", true),
+                    storeId = o.optNullableString("store_id")
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Lojas com cupom ativo via RPC pública `get_stores_with_coupons`. */
+    suspend fun fetchStoresWithCoupons(limit: Int = 20): List<StoreWithCoupon> {
+        return try {
+            val body = buildJsonObject { putNum("p_limit", limit) }.toString()
+            val (ok, text) = restPostRaw("$SUPABASE_URL/rest/v1/rpc/get_stores_with_coupons", body)
+            if (!ok || text.isBlank()) return emptyList()
+            parseArray(text).map { el ->
+                val o = el.jsonObject
+                StoreWithCoupon(
+                    storeId = o.optString("store_id"),
+                    storeName = o.optString("store_name"),
+                    storeLogoUrl = o.optString("store_logo_url").takeIf { it.isNotBlank() },
+                    couponCode = o.optString("coupon_code"),
+                    discountType = o.optString("discount_type"),
+                    discountValue = o.optDouble("discount_value", 0.0),
+                    couponDescription = o.optString("coupon_description").takeIf { it.isNotBlank() }
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Banners ativos da vitrine (tabela banners, ANON). */
+    suspend fun fetchBanners(nowIso: String): List<Banner> {
+        return try {
+            val (ok, text) = restGetRaw(
+                "$SUPABASE_URL/rest/v1/banners?select=id,title,image_url,link_url,store_id,is_active,display_order,expires_at&is_active=eq.true&order=display_order.asc"
+            )
+            if (!ok || text.isBlank()) return emptyList()
+            parseArray(text).mapNotNull { el ->
+                val o = el.jsonObject
+                val imageUrl = o.optString("image_url")
+                if (imageUrl.isBlank()) return@mapNotNull null
+                val expiresAt = o.optNullableString("expires_at")
+                if (expiresAt != null && expiresAt <= nowIso) return@mapNotNull null
+                val linkUrl = o.optString("link_url")
+                val targetStoreId = o.optNullableString("store_id")
+                    ?: linkUrl.takeIf { it.startsWith("itasuper://loja/") }
+                        ?.removePrefix("itasuper://loja/")?.trim('/')?.takeIf { it.isNotBlank() }
+                Banner(
+                    id = o.optString("id"),
+                    title = o.optString("title"),
+                    imageUrl = imageUrl,
+                    targetStoreId = targetStoreId,
+                    description = ""
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
         }
     }
 

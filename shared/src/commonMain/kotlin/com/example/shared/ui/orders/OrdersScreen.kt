@@ -276,13 +276,14 @@ fun OrdersScreen(
     val orders = remember { mutableStateListOf<Order>() }
     val selectedFilter = remember { mutableStateOf(OrdersFilter.ACTIVE) }
     
-    // Carrega pedidos reais do backend
+    // Carrega pedidos reais do backend (com o JWT da sessão, como no original)
     LaunchedEffect(Unit) {
         try {
             val secureStorage = SecureStorage()
             val userId = secureStorage.get("session_user_id") ?: ""
-            if (userId.isNotBlank()) {
-                val realOrders = SupabaseApi.fetchOrdersForClient(userId)
+            val accessToken = secureStorage.get("session_access_token") ?: ""
+            if (userId.isNotBlank() && accessToken.isNotBlank()) {
+                val realOrders = SupabaseApi.fetchOrdersForClient(userId, accessToken)
                 orders.clear()
                 orders.addAll(realOrders)
             }

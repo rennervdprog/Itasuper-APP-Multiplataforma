@@ -196,10 +196,12 @@ fun App() {
                                         onSearchClick = { navigator.navigateTo(AppScreen.SEARCH) },
                                         onStoreClick = { navigator.openStore(it) },
                                         onCartClick = { navigator.navigateTo(AppScreen.CART) },
-                                        cartItemCount = cartState.totalItemCount
+                                        cartItemCount = cartState.totalItemCount,
+                                        cart = cartState
                                     )
                                     AppScreen.SEARCH -> SearchScreen(
-                                        onStoreClick = { navigator.openStore(it) }
+                                        onStoreClick = { navigator.openStore(it) },
+                                        cart = cartState
                                     )
                                     AppScreen.ORDERS -> OrdersScreen(
                                         onExploreClick = { navigator.navigateTo(AppScreen.HOME) },

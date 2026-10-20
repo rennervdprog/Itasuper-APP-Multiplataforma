@@ -107,6 +107,14 @@ class CartHolder {
 
     var couponInput by mutableStateOf("")
     var appliedCouponCode by mutableStateOf<String?>(null)
+
+    /**
+     * Cupom pendente vindo da seção "Lojas com Cupom" da Home (porte do
+     * CartRepository do app original): a Home grava código + loja ao tocar no
+     * card e a tela do carrinho consome uma única vez, só se for da mesma loja.
+     */
+    var pendingCouponCode by mutableStateOf<String?>(null)
+    var pendingCouponStoreId by mutableStateOf<String?>(null)
         private set
     var couponDiscount by mutableStateOf(0.0)
         private set

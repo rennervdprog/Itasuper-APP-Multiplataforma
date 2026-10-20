@@ -106,6 +106,8 @@ import com.example.shared.model.Banner
 import com.example.shared.model.CategoryItem
 import com.example.shared.model.DiscoverProduct
 import com.example.shared.model.Order
+import com.example.shared.model.Product
+import com.example.shared.ui.cart.CartHolder
 import com.example.shared.model.Store
 import com.example.shared.model.StoreWithCoupon
 import com.example.shared.model.sortedByRelevance
@@ -195,7 +197,7 @@ private val DAYPART_MANHA = HomeDaypart(
     categorias = listOf("mercado", "pastel", "farmacias")
 )
 private val DAYPART_ALMOCO = HomeDaypart(
-    id = "almoco", titulo = "Hora do almoço",
+    id = "almoco", titulo = "O que pedir no almoço",
     subtitulo = "Pratos prontos perto de você",
     categorias = listOf("marmita", "churrasco", "pastel")
 )
@@ -205,8 +207,8 @@ private val DAYPART_TARDE = HomeDaypart(
     categorias = listOf("acai", "pastel", "lanches")
 )
 private val DAYPART_NOITE = HomeDaypart(
-    id = "noite", titulo = "Hora do jantar",
-    subtitulo = "O que pedir hoje à noite",
+    id = "noite", titulo = "O que pedir hoje à noite",
+    subtitulo = "Pratos prontos perto de você",
     categorias = listOf("pizzaria", "lanches", "bebidas")
 )
 
@@ -330,35 +332,13 @@ private fun homeCategories(): List<CategoryItem> = listOf(
     CategoryItem(id = "churrasco", name = "Churrasco", iconName = "churrasco")
 )
 
-private fun mockHomeBanners(): List<Banner> = listOf(
-    Banner(
-        id = "b1",
-        title = "50% OFF na primeira compra",
-        imageUrl = "",
-        description = "Válido para novos clientes"
-    ),
-    Banner(id = "b2", title = "Frete grátis acima de R$ 35", imageUrl = "")
-)
-
-private fun mockStoresWithCoupons(): List<StoreWithCoupon> = listOf(
-    StoreWithCoupon(
-        storeId = "s2", storeName = "Doceria da Cleide", storeLogoUrl = null,
-        couponCode = "DOCE10", discountType = "value",
-        discountValue = 10.0, couponDescription = null
-    ),
-    StoreWithCoupon(
-        storeId = "s1", storeName = "Pastelão Carioca", storeLogoUrl = null,
-        couponCode = "PASTEL15", discountType = "percent",
-        discountValue = 15.0, couponDescription = null
-    )
-)
-
 @Composable
 fun HomeScreen(
     onSearchClick: () -> Unit = {},
     onStoreClick: (String) -> Unit = {},
     onCartClick: () -> Unit = {},
-    cartItemCount: Int = 0
+    cartItemCount: Int = 0,
+    cart: CartHolder? = null
 ) {
     // Lojas reais do Supabase. Sem fallback para mocks (regra: nada de dado fake).
     // Erro de rede -> tela de erro com "Tentar novamente" (igual ao app original).
@@ -456,14 +436,117 @@ fun HomeScreen(
     // Sem nenhuma das duas, a lista regional fica vazia (requiresAddress).
     val activeCity = session.activeLocationCity.ifBlank { session.addressCity }
     val categories = remember { homeCategories() } // categorias fixas do catálogo (StoreRepository)
-    // Seções promocionais com dados mock removidas (regra: nada de dado fake).
-    // banners, cupons, ofertas e "peça de novo" só voltam com dados reais.
     val daypart = remember { currentHomeDaypart() }
-    val spotlightStores = remember(stores) { stores.filter { it.isOpen }.take(4) }
-    val recentStores = remember(stores) { stores.take(2) }
-    val storesWithCoupons = remember { emptyList<StoreWithCoupon>() }
-    val affordableProducts = remember { emptyList<DiscoverProduct>() }
-    val repeatProducts = remember { emptyList<DiscoverProduct>() }
+
+    // Região: lojas da cidade efetiva, por igualdade normalizada (igual ao original).
+    val regionalStores = remember(stores, activeCity) {
+        if (activeCity.isBlank()) emptyList()
+        else stores.filter { normalizeForComparison(it.addressCity) == normalizeForComparison(activeCity) }
+    }
+
+    // Destaque da faixa de horário (porte do HomeViewModel do original): só
+    // lojas abertas nas categorias da faixa; menos de 3 = a seção some inteira;
+    // ordem por distância (sem distância por último) e depois nome.
+    val spotlightStores = remember(regionalStores, daypart) {
+        val candidates = regionalStores.filter { store ->
+            store.isOpen && daypart.categorias.any { matchesHomeCategory(it, store) }
+        }
+        if (candidates.size < 3) emptyList()
+        else candidates.sortedWith(
+            compareBy<Store> { it.distanceKm ?: Double.MAX_VALUE }.thenBy { it.name.lowercase() }
+        ).take(8)
+    }
+
+    // Lojas com cupom: RPC pública real (get_stores_with_coupons).
+    var storesWithCoupons by remember { mutableStateOf<List<StoreWithCoupon>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        storesWithCoupons = try {
+            SupabaseApi.fetchStoresWithCoupons(limit = 20)
+        } catch (_: Throwable) {
+            emptyList()
+        }
+    }
+
+    // Pedidos reais do cliente: base das seções "Suas lojas" e "Peça de novo".
+    var userOrders by remember { mutableStateOf<List<Order>>(emptyList()) }
+    LaunchedEffect(session.userId) {
+        userOrders = if (session.userId.isNotBlank() && session.accessToken.isNotBlank()) {
+            try {
+                SupabaseApi.fetchOrdersForClient(session.userId, session.accessToken)
+            } catch (_: Throwable) {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
+    }
+
+    // "Suas lojas": lojas distintas dos pedidos, na ordem dos pedidos
+    // (máx. 6 ids; a seção exibe 2), cruzadas com o catálogo atual.
+    val recentStores = remember(userOrders, stores) {
+        val byId = stores.associateBy { it.id }
+        userOrders.map { it.storeId }.distinct().take(6).mapNotNull { byId[it] }
+    }
+
+    // "Peça de novo": só pedidos concluídos (entregue/finalizado); cada produto
+    // é revalidado no cardápio atual da loja (disponível, loja aberta) e entra
+    // com preço/nome atuais — igual ao app original. Máximo 8.
+    var repeatProducts by remember { mutableStateOf<List<DiscoverProduct>>(emptyList()) }
+    LaunchedEffect(userOrders, stores) {
+        repeatProducts = try {
+            val completed = userOrders.filter { order ->
+                order.status.trim().lowercase() in setOf("entregue", "finalizado") && order.items.isNotEmpty()
+            }
+            val byId = stores.associateBy { it.id }
+            val productsByStore = mutableMapOf<String, Map<String, Product>>()
+            val seen = mutableSetOf<String>()
+            val result = mutableListOf<DiscoverProduct>()
+            for (order in completed) {
+                if (result.size >= 8) break
+                val store = byId[order.storeId] ?: continue
+                if (!store.isOpen) continue
+                val menu = productsByStore.getOrPut(order.storeId) {
+                    SupabaseApi.fetchProductsForStore(order.storeId)
+                        .filter { it.isAvailable }
+                        .associateBy { it.id }
+                }
+                for (item in order.items) {
+                    if (result.size >= 8) break
+                    if (!seen.add(item.product.id)) continue
+                    val current = menu[item.product.id] ?: continue
+                    result += DiscoverProduct(
+                        id = current.id,
+                        storeId = store.id,
+                        storeName = store.name,
+                        storeCategory = store.category,
+                        name = current.name,
+                        price = current.price,
+                        imageUrl = current.imageUrl
+                    )
+                }
+            }
+            result
+        } catch (_: Throwable) {
+            emptyList()
+        }
+    }
+
+    // Preço acessível: produtos reais de lojas abertas da região, do menor
+    // preço pra cima (sem lojas abertas = seção some, igual ao original).
+    var affordableProducts by remember { mutableStateOf<List<DiscoverProduct>>(emptyList()) }
+    val regionalOpenKey = regionalStores.filter { it.isOpen }.joinToString(",") { it.id }
+    LaunchedEffect(regionalOpenKey) {
+        val openStores = regionalStores.filter { it.isOpen }
+        affordableProducts = if (openStores.isEmpty()) {
+            emptyList()
+        } else {
+            try {
+                SupabaseApi.fetchDiscoverProducts(openStores, limit = 8, orderByPrice = true)
+            } catch (_: Throwable) {
+                emptyList()
+            }
+        }
+    }
 
     val visibleStores = remember(
         stores, selectedCategory, isFreeFeeActive, isDirectDeliveryActive, storeSort, activeCity,
@@ -542,7 +625,13 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(24.dp))
             HomeStoresWithCouponsSection(
                 storesWithCoupons = storesWithCoupons,
-                onStoreClick = { storeId, _ -> onStoreClick(storeId) }
+                onStoreClick = { storeId, couponCode ->
+                    // Igual ao original: grava o cupom pendente (código + loja)
+                    // e navega; a tela do carrinho aplica se for da mesma loja.
+                    cart?.pendingCouponCode = couponCode
+                    cart?.pendingCouponStoreId = storeId
+                    onStoreClick(storeId)
+                }
             )
         }
 

@@ -50,6 +50,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -97,6 +98,21 @@ fun CartScreen(
     } == true
     val deliveryBlockedForCurrentSelection = isDeliveryUnavailable && cart.deliveryType == DeliveryType.DELIVERY
     var showDeliveryFeeInfo by remember { mutableStateOf(false) }
+
+    // Auto-aplica o cupom vindo da seção "Lojas com Cupom" da Home, uma única
+    // vez e somente se o carrinho for da mesma loja (igual ao app original).
+    LaunchedEffect(Unit) {
+        val pending = cart.pendingCouponCode
+        val pendingStore = cart.pendingCouponStoreId
+        cart.pendingCouponCode = null
+        cart.pendingCouponStoreId = null
+        if (!pending.isNullOrBlank() && cart.appliedCouponCode == null &&
+            !pendingStore.isNullOrBlank() && pendingStore == cart.storeId
+        ) {
+            cart.couponInput = pending
+            cart.applyCoupon()
+        }
+    }
 
     Scaffold(
         containerColor = Color(0xFFFAFAFA),
