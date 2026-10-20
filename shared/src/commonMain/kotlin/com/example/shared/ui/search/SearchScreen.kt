@@ -91,6 +91,7 @@ import com.example.shared.model.Coupon
 import com.example.shared.model.DiscoverProduct
 import com.example.shared.model.Product
 import com.example.shared.model.Store
+import com.example.shared.model.haversineKm
 import com.example.shared.model.StoreWithCoupon
 import com.example.shared.network.SupabaseApi
 import com.example.shared.platform.LocationProvider
@@ -473,10 +474,28 @@ fun SearchScreen(
     // Região = cidade efetiva (GPS ativo, senão cadastro); sem cidade = vazio;
     // lojas de teste fora (só na Descobrir, como no original).
     val activeCity = session.activeLocationCity.ifBlank { session.addressCity }
-    val regionalStores = remember(allStores, activeCity) {
+    // Distância real de cada loja a partir da localização ativa da sessão:
+    // haversine × 1,3 (fator urbano da referência web, igual ao app original).
+    val allStoresWithDistance = remember(
+        allStores, session.activeLocationLatitude, session.activeLocationLongitude
+    ) {
+        val userLat = session.activeLocationLatitude
+        val userLon = session.activeLocationLongitude
+        if (userLat == null || userLon == null) {
+            allStores
+        } else {
+            allStores.map { store ->
+                val sLat = store.latitude
+                val sLon = store.longitude
+                if (sLat == null || sLon == null) store
+                else store.copy(distanceKm = haversineKm(userLat, userLon, sLat, sLon) * 1.3)
+            }
+        }
+    }
+    val regionalStores = remember(allStoresWithDistance, activeCity) {
         val cityKey = normalizeSearchText(activeCity)
         if (cityKey.isBlank()) emptyList()
-        else allStores.filter {
+        else allStoresWithDistance.filter {
             normalizeSearchText(it.addressCity) == cityKey && !isTestStore(it)
         }
     }
@@ -621,21 +640,30 @@ fun SearchScreen(
         }
     }
 
-    // GPS: grava as coordenadas na sessão (localização ativa). A
-    // geocodificação reversa entra na Fase C — nunca endereço inventado.
+    // GPS: grava o endereço REAL geocodificado na sessão (localização ativa);
+    // sem cidade identificada, limpa a localização ativa — nunca inventado.
     fun fetchGpsLocation() {
         scope.launch {
-            val coords = LocationProvider.getCurrentLocation()
-            if (coords != null) {
+            val current = try {
+                LocationProvider.getCurrentAddress()
+            } catch (_: Throwable) {
+                null
+            }
+            if (current == null || current.city.isBlank()) {
+                // Igual ao original: sem cidade identificada pelo GPS, limpa a
+                // localização ativa e volta ao endereço cadastrado.
+                UserSessionRepository.clearActiveLocation()
+            } else {
+                // Endereço REAL geocodificado da posição — nunca inventado.
                 UserSessionRepository.updateActiveLocation(
-                    street = session.activeLocationStreet,
-                    number = session.activeLocationNumber,
-                    neighborhood = session.activeLocationNeighborhood,
-                    cep = session.activeLocationCep,
-                    city = session.activeLocationCity,
-                    state = session.activeLocationState,
-                    latitude = coords.first,
-                    longitude = coords.second
+                    street = current.street,
+                    number = current.number,
+                    neighborhood = current.neighborhood,
+                    cep = current.cep,
+                    city = current.city,
+                    state = current.state,
+                    latitude = current.latitude,
+                    longitude = current.longitude
                 )
             }
         }

@@ -109,6 +109,7 @@ import com.example.shared.model.Order
 import com.example.shared.model.Product
 import com.example.shared.ui.cart.CartHolder
 import com.example.shared.model.Store
+import com.example.shared.model.haversineKm
 import com.example.shared.model.StoreWithCoupon
 import com.example.shared.model.sortedByRelevance
 import com.example.shared.network.SupabaseApi
@@ -411,21 +412,31 @@ fun HomeScreen(
     // onAllowLocation — quando a permissão já existe — quanto do resultado do
     // LocationAndPermissionsDialog; espelha viewModel.fetchGpsLocation do original).
     // As coordenadas vão para a sessão (localização ativa); a geocodificação
-    // reversa preenche rua/bairro/cidade na Fase C — NUNCA endereço inventado.
+    // reversa preenche rua/bairro/cidade — NUNCA endereço inventado.
     fun fetchGpsLocation() {
         isRefreshingLocation = true
         addressScope.launch {
-            val coords = LocationProvider.getCurrentLocation()
-            if (coords != null) {
+            val current = try {
+                LocationProvider.getCurrentAddress()
+            } catch (_: Throwable) {
+                null
+            }
+            if (current == null || current.city.isBlank()) {
+                // Igual ao original: sem cidade identificada pelo GPS, limpa a
+                // localização ativa e volta ao endereço cadastrado.
+                UserSessionRepository.clearActiveLocation()
+            } else {
+                // Endereço REAL geocodificado da posição (rua/número/bairro/
+                // cidade/UF/CEP) — nunca endereço inventado.
                 UserSessionRepository.updateActiveLocation(
-                    street = session.activeLocationStreet,
-                    number = session.activeLocationNumber,
-                    neighborhood = session.activeLocationNeighborhood,
-                    cep = session.activeLocationCep,
-                    city = session.activeLocationCity,
-                    state = session.activeLocationState,
-                    latitude = coords.first,
-                    longitude = coords.second
+                    street = current.street,
+                    number = current.number,
+                    neighborhood = current.neighborhood,
+                    cep = current.cep,
+                    city = current.city,
+                    state = current.state,
+                    latitude = current.latitude,
+                    longitude = current.longitude
                 )
             }
             isRefreshingLocation = false
@@ -435,13 +446,33 @@ fun HomeScreen(
     // Cidade efetiva: localização ativa (GPS) primeiro, senão a do cadastro.
     // Sem nenhuma das duas, a lista regional fica vazia (requiresAddress).
     val activeCity = session.activeLocationCity.ifBlank { session.addressCity }
+
+    // Distância real de cada loja a partir da localização ativa da sessão:
+    // haversine × 1,3 (fator urbano da referência web, igual ao app original).
+    // Sem coordenadas do cliente, as lojas ficam sem distância (null).
+    val storesWithDistance = remember(
+        stores, session.activeLocationLatitude, session.activeLocationLongitude
+    ) {
+        val userLat = session.activeLocationLatitude
+        val userLon = session.activeLocationLongitude
+        if (userLat == null || userLon == null) {
+            stores
+        } else {
+            stores.map { store ->
+                val sLat = store.latitude
+                val sLon = store.longitude
+                if (sLat == null || sLon == null) store
+                else store.copy(distanceKm = haversineKm(userLat, userLon, sLat, sLon) * 1.3)
+            }
+        }
+    }
     val categories = remember { homeCategories() } // categorias fixas do catálogo (StoreRepository)
     val daypart = remember { currentHomeDaypart() }
 
     // Região: lojas da cidade efetiva, por igualdade normalizada (igual ao original).
-    val regionalStores = remember(stores, activeCity) {
+    val regionalStores = remember(storesWithDistance, activeCity) {
         if (activeCity.isBlank()) emptyList()
-        else stores.filter { normalizeForComparison(it.addressCity) == normalizeForComparison(activeCity) }
+        else storesWithDistance.filter { normalizeForComparison(it.addressCity) == normalizeForComparison(activeCity) }
     }
 
     // Destaque da faixa de horário (porte do HomeViewModel do original): só
@@ -483,8 +514,8 @@ fun HomeScreen(
 
     // "Suas lojas": lojas distintas dos pedidos, na ordem dos pedidos
     // (máx. 6 ids; a seção exibe 2), cruzadas com o catálogo atual.
-    val recentStores = remember(userOrders, stores) {
-        val byId = stores.associateBy { it.id }
+    val recentStores = remember(userOrders, storesWithDistance) {
+        val byId = storesWithDistance.associateBy { it.id }
         userOrders.map { it.storeId }.distinct().take(6).mapNotNull { byId[it] }
     }
 
@@ -492,12 +523,12 @@ fun HomeScreen(
     // é revalidado no cardápio atual da loja (disponível, loja aberta) e entra
     // com preço/nome atuais — igual ao app original. Máximo 8.
     var repeatProducts by remember { mutableStateOf<List<DiscoverProduct>>(emptyList()) }
-    LaunchedEffect(userOrders, stores) {
+    LaunchedEffect(userOrders, storesWithDistance) {
         repeatProducts = try {
             val completed = userOrders.filter { order ->
                 order.status.trim().lowercase() in setOf("entregue", "finalizado") && order.items.isNotEmpty()
             }
-            val byId = stores.associateBy { it.id }
+            val byId = storesWithDistance.associateBy { it.id }
             val productsByStore = mutableMapOf<String, Map<String, Product>>()
             val seen = mutableSetOf<String>()
             val result = mutableListOf<DiscoverProduct>()
@@ -549,17 +580,17 @@ fun HomeScreen(
     }
 
     val visibleStores = remember(
-        stores, selectedCategory, isFreeFeeActive, isDirectDeliveryActive, storeSort, activeCity,
+        storesWithDistance, selectedCategory, isFreeFeeActive, isDirectDeliveryActive, storeSort, activeCity,
         session.activeLocationLatitude, session.activeLocationLongitude
     ) {
         applyHomeStoreFilters(
-            stores, selectedCategory, isFreeFeeActive, isDirectDeliveryActive, storeSort, activeCity,
+            storesWithDistance, selectedCategory, isFreeFeeActive, isDirectDeliveryActive, storeSort, activeCity,
             session.activeLocationLatitude, session.activeLocationLongitude
         )
     }
-    val regionalStoreCount = remember(stores, activeCity) {
+    val regionalStoreCount = remember(storesWithDistance, activeCity) {
         if (activeCity.isBlank()) 0
-        else stores.count { normalizeForComparison(it.addressCity) == normalizeForComparison(activeCity) }
+        else storesWithDistance.count { normalizeForComparison(it.addressCity) == normalizeForComparison(activeCity) }
     }
     val requiresAddress = activeCity.isBlank()
     val hasActiveFilters = selectedCategory != "todas" || isFreeFeeActive || isDirectDeliveryActive
