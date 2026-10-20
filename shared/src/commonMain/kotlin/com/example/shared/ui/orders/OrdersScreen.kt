@@ -53,14 +53,19 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,12 +74,19 @@ import androidx.compose.ui.unit.sp
 import com.example.shared.model.Order
 import com.example.shared.model.RefundEligibility
 import com.example.shared.network.SupabaseApi
+import com.example.shared.model.PixDirectPaymentUiState
+import com.example.shared.model.PixPaymentUiState
 import com.example.shared.platform.SecureStorage
+import com.example.shared.session.UserSessionRepository
 import com.example.shared.theme.ItaSuperBorder
 import com.example.shared.theme.ItaSuperHighlightBg
 import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ItaSuperSuccess
+import coil3.compose.AsyncImage
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDateTime
@@ -85,22 +97,16 @@ import kotlinx.datetime.toLocalDateTime
 import kotlin.math.roundToLong
 
 // =============================================================================
-// LIMITAÇÕES KMP DOCUMENTADAS (prévia com mocks; sem ViewModel/backend ainda):
-// - Clipboard ("Copiar" no código de entrega / "Copiar código PIX"): no original
-//   usa android.content.ClipboardManager. Aqui o botão é no-op com TODO para
-//   expect/actual por plataforma.
-// - QR Code PIX: o original decodifica Base64 -> Bitmap (android.graphics).
-//   Aqui exibe placeholder até o decode nativo via expect/actual.
-// - Upload de comprovante PIX Direto (ActivityResultContracts.OpenDocument):
-//   botão no-op; fluxo nativo pendente.
-// - Ações de rede (cancelar pedido, confirmar entrega, pagar PIX, avaliar,
-//   reembolso, repetir pedido): no-ops locais ou estado em memória apenas.
-//   Comportamento real chega com a fase de rede (Ktor/SupabaseClient).
-// - "Acompanhar entrega": abre DeliveryTrackingScreen via AppNavigator (trackingOrderId).
-// - Auto-refresh periódico (5s/30s) do original não existe na prévia.
+// ESTADO DESTA TELA (pós Fases A–E do mapa do app original):
+// - Pedidos, cancelar (RPC), confirmar entrega (RPC), avaliação (reviews),
+//   reembolso PIX Direto (RPC), gerar PIX (payment-router) e chave PIX Direto
+//   da loja: TUDO real, igual ao OrdersViewModel do app atual.
+// - Clipboard: LocalClipboardManager do Compose (código de entrega e PIX).
+// - QR Code PIX: imagem Base64 real decodificada e exibida via Coil.
+// - Pendente: upload de comprovante do PIX Direto (seletor de arquivo
+//   nativo via expect/actual) e "repetir pedido" (fluxo de sacola).
+// - "Acompanhar entrega": abre DeliveryTrackingScreen via AppNavigator.
 // =============================================================================
-
-// TODO(fase-rede): trocar mockOrders pela busca real via Ktor/SupabaseClient.
 
 private data class OrderStatusPresentation(
     val label: String,
@@ -246,27 +252,6 @@ private fun isWithinRatingWindow(createdAt: String): Boolean {
     }
 }
 
-/** Estado de demonstração dos diálogos PIX na prévia com mocks. */
-private class PixPaymentUiState(
-    val isLoading: Boolean = false,
-    val errorMessage: String? = null,
-    val pixCode: String? = null
-)
-
-/** Estado de demonstração do diálogo de PIX Direto na prévia com mocks. */
-private class PixDirectPaymentUiState(
-    val storeName: String = "",
-    val order: Order? = null,
-    val beneficiary: String = "",
-    val pixKeyType: String = "",
-    val pixKey: String = "",
-    val instructions: String = "",
-    val pixExpiresAt: String? = null,
-    val isUploading: Boolean = false,
-    val proofSent: Boolean = false,
-    val errorMessage: String? = null
-)
-
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun OrdersScreen(
@@ -275,23 +260,46 @@ fun OrdersScreen(
 ) {
     val orders = remember { mutableStateListOf<Order>() }
     val selectedFilter = remember { mutableStateOf(OrdersFilter.ACTIVE) }
-    
-    // Carrega pedidos reais do backend (com o JWT da sessão, como no original)
-    LaunchedEffect(Unit) {
-        try {
-            val secureStorage = SecureStorage()
-            val userId = secureStorage.get("session_user_id") ?: ""
-            val accessToken = secureStorage.get("session_access_token") ?: ""
-            if (userId.isNotBlank() && accessToken.isNotBlank()) {
-                val realOrders = SupabaseApi.fetchOrdersForClient(userId, accessToken)
-                orders.clear()
-                orders.addAll(realOrders)
+    val ratedStoreIds = remember { mutableStateOf(setOf<String>()) } // Opção 1: 1 avaliação por loja
+    val isRefreshing = remember { mutableStateOf(false) }
+    val session by UserSessionRepository.session.collectAsState()
+    val scope = rememberCoroutineScope()
+    // Erro das ações (cancelar/confirmar/avaliar/reembolso/PIX), igual ao
+    // errorMessage do OrdersViewModel original.
+    val actionError = remember { mutableStateOf<String?>(null) }
+
+    // Recarrega pedidos + lojas já avaliadas (porte do refreshOrders do
+    // original: falha transitória NÃO apaga o histórico já exibido).
+    fun reloadOrders() {
+        val s = session
+        if (!s.isLoggedIn || s.userId.isBlank() || s.accessToken.isBlank()) {
+            isRefreshing.value = false
+            return
+        }
+        scope.launch {
+            try {
+                val remoteOrders = SupabaseApi.fetchOrdersForClient(s.userId, s.accessToken)
+                if (remoteOrders.isNotEmpty() || orders.isEmpty()) {
+                    orders.clear()
+                    orders.addAll(remoteOrders)
+                }
+                val ratedIds = SupabaseApi.fetchRatedOrderIds(s.userId, s.accessToken)
+                if (ratedIds.isNotEmpty()) {
+                    ratedStoreIds.value = ratedStoreIds.value + ratedIds
+                }
+            } catch (_: Exception) {
+                // Mantém o que já estava na tela (sem mocks)
+            } finally {
+                isRefreshing.value = false
             }
-        } catch (_: Exception) {
-            // Mantém lista vazia em caso de erro (sem mocks)
         }
     }
-    
+
+    // Carrega pedidos reais do backend (com o JWT da sessão, como no original)
+    LaunchedEffect(session.userId) {
+        if (session.userId.isNotBlank()) reloadOrders()
+    }
+
     val filteredOrders = orders.filter { it.matchesFilter(selectedFilter.value) }
     val activeOrders = filteredOrders.filterNot { it.isFinished() }
     val previousOrders = filteredOrders.filter { it.isFinished() }
@@ -304,17 +312,23 @@ fun OrdersScreen(
     val ratingPublic = remember { mutableStateOf(true) }
     val orderPendingRefund = remember { mutableStateOf<Order?>(null) }
     val refundDescription = remember { mutableStateOf("") }
-    val ratedStoreIds = remember { mutableStateOf(setOf<String>()) } // Opção 1: 1 avaliação por loja
-    val isRefreshing = remember { mutableStateOf(false) }
     val pixDialog = remember { mutableStateOf<PixPaymentUiState?>(null) }
     val pixDirectDialog = remember { mutableStateOf<PixDirectPaymentUiState?>(null) }
 
-    // Prévia: simula o spinner de atualização do original (sem backend).
+    // Atualização real (pull-to-refresh recarrega do backend).
     LaunchedEffect(isRefreshing.value) {
-        if (isRefreshing.value) {
-            delay(1200)
-            isRefreshing.value = false
-        }
+        if (isRefreshing.value) reloadOrders()
+    }
+
+    actionError.value?.let { message ->
+        AlertDialog(
+            onDismissRequest = { actionError.value = null },
+            title = { Text("Aviso") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { actionError.value = null }) { Text("Entendi") }
+            }
+        )
     }
 
     orderPendingCancellation.value?.let { order ->
@@ -326,8 +340,20 @@ fun OrdersScreen(
                 Button(
                     onClick = {
                         orderPendingCancellation.value = null
-                        // TODO(fase-rede): viewModel.cancelOrder(order) — prévia remove localmente.
-                        orders.remove(order)
+                        // Porte do cancelOrder do original: RPC de política de
+                        // cancelamento; sucesso recarrega, erro mostra a mensagem.
+                        if (session.accessToken.isBlank()) {
+                            actionError.value = "Sua sessão expirou. Entre novamente para cancelar o pedido."
+                        } else {
+                            scope.launch {
+                                val result = SupabaseApi.cancelOrderByClient(order.id, session.accessToken)
+                                if (result.isSuccess) {
+                                    reloadOrders()
+                                } else {
+                                    actionError.value = result.exceptionOrNull()?.message
+                                }
+                            }
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) { Text("Confirmar cancelamento") }
@@ -426,13 +452,41 @@ fun OrdersScreen(
             },
             confirmButton = {
                 Button(onClick = {
-                    // TODO(fase-rede): viewModel.submitOrderRating(...) — prévia só marca localmente.
-                    orderPendingRating.value = null
-                    ratingValue.value = 5
-                    ratingComment.value = ""
-                    ratingTags.value = emptySet()
-                    ratingPublic.value = true
-                    ratedStoreIds.value = ratedStoreIds.value + order.storeId // Opção 1: 1 por loja
+                    // Porte do submitOrderRating do original (com tags e
+                    // sentimento derivado da tag, igual ao app atual).
+                    val rating = ratingValue.value
+                    when {
+                        session.accessToken.isBlank() || rating !in 1..5 ->
+                            actionError.value = "Informe uma avaliação de 1 a 5 estrelas."
+                        rating <= 3 && ratingComment.value.trim().length < 12 ->
+                            actionError.value = "Conte um pouco mais (mín. 12 caracteres) para notas até 3 estrelas."
+                        else -> scope.launch {
+                            val tags = ratingTags.value.map { tag ->
+                                val positive = tag in setOf("tasty", "good_packaging", "generous_portion", "on_time")
+                                tag to if (positive) "positive" else "negative"
+                            }
+                            val success = SupabaseApi.submitOrderRating(
+                                orderId = order.id,
+                                storeId = order.storeId,
+                                userId = session.userId,
+                                rating = rating,
+                                comment = ratingComment.value,
+                                accessToken = session.accessToken,
+                                isPublic = ratingPublic.value,
+                                tags = tags
+                            )
+                            if (success) {
+                                orderPendingRating.value = null
+                                ratingValue.value = 5
+                                ratingComment.value = ""
+                                ratingTags.value = emptySet()
+                                ratingPublic.value = true
+                                ratedStoreIds.value = ratedStoreIds.value + order.storeId // Opção 1: 1 por loja
+                            } else {
+                                actionError.value = "Não foi possível enviar sua avaliação."
+                            }
+                        }
+                    }
                 }) { Text("Enviar avaliação") }
             },
             dismissButton = {
@@ -462,9 +516,44 @@ fun OrdersScreen(
             },
             confirmButton = {
                 Button(onClick = {
-                    // TODO(fase-rede): viewModel.requestRefund(...) — prévia só fecha.
-                    orderPendingRefund.value = null
-                    refundDescription.value = ""
+                    // Porte do requestRefund do original: elegibilidade do
+                    // PIX Direto primeiro; motivo fixo "other" (igual ao app).
+                    val refundable = RefundEligibility.canOpenPixDiretoCase(
+                        order.paymentMethod,
+                        order.status,
+                        order.refundRequestExpiresAt
+                    )
+                    when {
+                        !refundable -> {
+                            actionError.value = if (
+                                order.paymentMethod == "pix_direto" &&
+                                order.status.lowercase() in setOf("entregue", "finalizado")
+                            ) {
+                                RefundEligibility.EXPIRED_MESSAGE
+                            } else {
+                                RefundEligibility.INELIGIBLE_MESSAGE
+                            }
+                            orderPendingRefund.value = null
+                            refundDescription.value = ""
+                        }
+                        session.accessToken.isBlank() -> {
+                            actionError.value = "Sua sessão expirou. Entre novamente para solicitar a análise."
+                            orderPendingRefund.value = null
+                            refundDescription.value = ""
+                        }
+                        else -> scope.launch {
+                            val description = refundDescription.value
+                            val result = SupabaseApi.requestPixDiretoRefund(
+                                order.id, "other", description, session.accessToken
+                            )
+                            orderPendingRefund.value = null
+                            refundDescription.value = ""
+                            if (result.isFailure) {
+                                actionError.value = result.exceptionOrNull()?.message
+                                    ?: "Não foi possível abrir a solicitação de PIX Direto."
+                            }
+                        }
+                    }
                 }) { Text("Enviar solicitação") }
             },
             dismissButton = { TextButton(onClick = { orderPendingRefund.value = null }) { Text("Cancelar") } }
@@ -548,22 +637,69 @@ fun OrdersScreen(
                     items(activeOrders, key = { it.id }) { order ->
                         ActiveOrderCard(
                             order = order,
-                            onPayPix = { pixDialog.value = PixPaymentUiState(pixCode = "00020126580014BR.GOV.BCB.PIX0136demo52040000530398654041DEMO5802BR5913LOJA DEMO6009SAO PAULO62070503***6304DEMO") },
+                            onPayPix = {
+                                // Porte do generatePixPayment do original: gera o
+                                // PIX real do pedido (edge payment-router).
+                                if (!session.isLoggedIn || session.accessToken.isBlank()) {
+                                    actionError.value = "Sua sessão expirou. Entre novamente para pagar com PIX."
+                                } else {
+                                    pixDialog.value = PixPaymentUiState(order = order, isLoading = true)
+                                    scope.launch {
+                                        val response = SupabaseApi.generatePixForOrder(
+                                            order = order,
+                                            payerFullName = session.name,
+                                            payerDocument = session.cpfCnpj,
+                                            accessToken = session.accessToken
+                                        )
+                                        pixDialog.value = if (response.isSuccess) {
+                                            PixPaymentUiState(
+                                                order = order,
+                                                pixCode = response.pixCode,
+                                                qrCodeBase64 = response.qrCodeBase64
+                                            )
+                                        } else {
+                                            PixPaymentUiState(
+                                                order = order,
+                                                errorMessage = response.errorMessage ?: "Não foi possível gerar o PIX."
+                                            )
+                                        }
+                                    }
+                                }
+                            },
                             onPixDirect = {
-                                pixDirectDialog.value = PixDirectPaymentUiState(
-                                    storeName = order.storeName,
-                                    order = order,
-                                    beneficiary = "",
-                                    pixKeyType = "",
-                                    pixKey = "chave-pix-demo@loja.com",
-                                    instructions = "",
-                                    pixExpiresAt = order.pixExpiresAt.ifBlank { null }
-                                )
+                                // Porte do openPixDirectPayment do original: a
+                                // chave vem do cadastro REAL da loja.
+                                scope.launch {
+                                    val store = SupabaseApi.fetchStoreById(order.storeId)
+                                    if (store == null || !store.pixDirectEnabled || store.pixDirectKey.isBlank()) {
+                                        actionError.value = "A chave PIX direto desta loja não está disponível."
+                                    } else {
+                                        pixDirectDialog.value = PixDirectPaymentUiState(
+                                            order = order,
+                                            storeName = store.name,
+                                            pixKey = store.pixDirectKey,
+                                            pixKeyType = store.pixDirectKeyType,
+                                            beneficiary = store.pixDirectBeneficiary,
+                                            instructions = store.pixDirectInstructions
+                                        )
+                                    }
+                                }
                             },
                             onConfirmDelivery = {
-                                // TODO(fase-rede): viewModel.confirmDelivery(order) — prévia atualiza localmente.
-                                val idx = orders.indexOfFirst { it.id == order.id }
-                                if (idx >= 0) orders[idx] = order.copy(status = "entregue", deliveryConfirmedByClient = true)
+                                // Porte do confirmDelivery do original: RPC
+                                // client_confirm_delivery; sucesso recarrega.
+                                if (session.accessToken.isBlank()) {
+                                    actionError.value = "Sua sessão expirou. Entre novamente para confirmar a entrega."
+                                } else {
+                                    scope.launch {
+                                        val result = SupabaseApi.confirmDeliveryByClient(order.id, session.accessToken)
+                                        if (result.isSuccess) {
+                                            reloadOrders()
+                                        } else {
+                                            actionError.value = result.exceptionOrNull()?.message
+                                        }
+                                    }
+                                }
                             },
                             onCancelOrder = { orderPendingCancellation.value = order },
                             onTrackDelivery = { onTrackDelivery(order.id) }
@@ -853,6 +989,7 @@ private fun OrderTimeline(activeStage: Int) {
 
 @Composable
 private fun DeliveryPinCard(pin: String) {
+    val clipboardManager = LocalClipboardManager.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -869,8 +1006,7 @@ private fun DeliveryPinCard(pin: String) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text(pin.chunked(1).joinToString(" "), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, letterSpacing = 6.sp)
             OutlinedButton(
-                // TODO(kmp-clipboard): copiar via expect/actual (original usa ClipboardManager do Android).
-                onClick = { },
+                onClick = { clipboardManager.setText(AnnotatedString(pin)) },
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.height(40.dp)
             ) {
@@ -1064,13 +1200,23 @@ private fun PreviousOrderCard(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalEncodingApi::class)
 @Composable
 private fun PixPaymentDialog(
     state: PixPaymentUiState,
     onDismiss: () -> Unit
 ) {
     val pixCode = state.pixCode
+    val clipboardManager = LocalClipboardManager.current
+    // QR real: a imagem vem em Base64 da edge function; decodifica para
+    // bytes e o Coil renderiza (sem placeholder).
+    val qrBytes = remember(state.qrCodeBase64) {
+        state.qrCodeBase64?.takeIf { it.isNotBlank() }?.let { encoded ->
+            runCatching {
+                Base64.decode(encoded.replace("\n", "").replace(" ", ""))
+            }.getOrNull()
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1099,13 +1245,19 @@ private fun PixPaymentDialog(
                         )
                     }
                     else -> {
-                        // TODO(kmp-qr): o original decodifica o QR (Base64 -> Bitmap) via
-                        // android.graphics; aqui placeholder até o decode nativo via expect/actual.
-                        Box(
-                            modifier = Modifier.size(220.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFFF0F0F0)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("QR Code", style = MaterialTheme.typography.labelLarge, color = Color(0xFF8D8D8D))
+                        if (qrBytes != null) {
+                            AsyncImage(
+                                model = qrBytes,
+                                contentDescription = "QR Code PIX",
+                                modifier = Modifier.size(220.dp).clip(RoundedCornerShape(12.dp))
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier.size(220.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFFF0F0F0)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("QR Code", style = MaterialTheme.typography.labelLarge, color = Color(0xFF8D8D8D))
+                            }
                         }
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
@@ -1127,8 +1279,7 @@ private fun PixPaymentDialog(
         confirmButton = {
             if (!pixCode.isNullOrBlank() && !state.isLoading && state.errorMessage == null) {
                 Button(
-                    // TODO(kmp-clipboard): copiar via expect/actual (original usa ClipboardManager).
-                    onClick = { },
+                    onClick = { clipboardManager.setText(AnnotatedString(pixCode)) },
                     colors = ButtonDefaults.buttonColors(containerColor = ItaSuperPrimary)
                 ) {
                     Text("Copiar código PIX")
@@ -1156,7 +1307,7 @@ private fun PixDirectPaymentDialog(
     state: PixDirectPaymentUiState,
     onDismiss: () -> Unit
 ) {
-    val expiresAtMillis = state.pixExpiresAt?.let { raw ->
+    val expiresAtMillis = state.order?.pixExpiresAt?.ifBlank { null }?.let { raw ->
         runCatching { Instant.parse(raw).toEpochMilliseconds() }.getOrNull()
     }
     val nowMillis = remember { mutableStateOf(Clock.System.now().toEpochMilliseconds()) }

@@ -133,3 +133,9 @@ data class CartItem(
     val totalPrice: Double
         get() = unitPrice * quantity
 }
+
+/** Grupos e itens de adicionais vinculados a um produto. */
+data class ProductAddonsPayload(
+    val groups: List<AddonGroup> = emptyList(),
+    val items: List<AddonItem> = emptyList()
+)

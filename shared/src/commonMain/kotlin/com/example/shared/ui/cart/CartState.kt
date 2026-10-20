@@ -171,10 +171,20 @@ class CartHolder {
         items.isNotEmpty() && storeId != null && storeId != product.storeId
 
     /**
+     * Bloqueio de farmácia em 3 camadas (igual ao CartRepository do original):
+     * produto com receita obrigatória, produto controlado ou modo de venda
+     * fora do checkout da plataforma NUNCA entra na sacola.
+     */
+    fun isPharmacyBlocked(product: Product): Boolean =
+        product.requiresPrescription || product.isControlled ||
+            product.pharmacySaleMode != "platform_checkout"
+
+    /**
      * Adiciona um produto na sacola (usado pela vitrine da loja).
+     * Retorna false quando o produto é bloqueado (farmácia) — nada muda.
      * Se a sacola tem itens de outra loja, esvazia antes (comportamento de
      * fallback; a vitrine pede confirmação via StoreSwitchBottomSheet usando
-     * isSwitchingStore; TODO(fase-rede): confirmar com o usuário).
+     * isSwitchingStore).
      */
     fun addProduct(
         product: Product,
@@ -182,7 +192,8 @@ class CartHolder {
         notes: String = "",
         addons: List<SelectedAddonItem> = emptyList(),
         storeName: String = ""
-    ) {
+    ): Boolean {
+        if (isPharmacyBlocked(product)) return false
         if (items.isNotEmpty() && storeId != null && storeId != product.storeId) {
             clearCart()
         }
@@ -201,6 +212,7 @@ class CartHolder {
         } else {
             items + CartItem(product = product, quantity = quantity, notes = notes, selectedAddons = addons)
         }
+        return true
     }
 
     fun updateQuantity(productId: String, newQuantity: Int) {

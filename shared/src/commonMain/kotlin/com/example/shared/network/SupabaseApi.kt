@@ -15,9 +15,29 @@ import com.example.shared.model.PizzaBorder
 import com.example.shared.model.PizzaSizeCatalogItem
 import com.example.shared.model.Product
 import com.example.shared.model.PizzaLegacySize
+import com.example.shared.model.AddonGroup
+import com.example.shared.model.AddonItem
+import com.example.shared.model.MenuSection
+import com.example.shared.model.ProductAddonsPayload
 import com.example.shared.model.SavedAddress
+import com.example.shared.model.StoreDeliveryAvailability
+import com.example.shared.model.normalizeBrazilianUf
 import com.example.shared.model.Coupon
+import com.example.shared.model.ClientNotification
+import com.example.shared.model.DeliveryAddressInput
+import com.example.shared.model.DeliveryQuote
+import com.example.shared.model.DeliveryQuoteDestination
+import com.example.shared.model.DeliveryQuoteDistance
+import com.example.shared.model.DeliveryQuoteFailure
+import com.example.shared.model.DeliveryQuotePricing
+import com.example.shared.model.DeliveryQuoteResult
 import com.example.shared.model.DriverLocation
+import com.example.shared.model.LoyaltyBalance
+import com.example.shared.model.LoyaltyConfig
+import com.example.shared.model.StoreRatingAggregate
+import com.example.shared.model.StoreReview
+import com.example.shared.model.StoreReviewResponse
+import com.example.shared.model.WalletBalance
 import com.example.shared.model.Store
 import com.example.shared.model.StoreOpeningHour
 import com.example.shared.model.StoreSettings
@@ -186,6 +206,9 @@ object SupabaseApi {
     private fun parseArray(text: String): JsonArray =
         runCatching { json.parseToJsonElement(text).jsonArray }
             .getOrElse { JsonArray(emptyList()) }
+
+    private fun parseObjects(text: String): List<JsonObject> =
+        parseArray(text).mapNotNull { it as? JsonObject }
 
     private fun JsonObjectBuilder.putBlankAsNull(key: String, value: String) {
         putStr(key, value.ifBlank { null })
@@ -1353,6 +1376,226 @@ object SupabaseApi {
         }
     }
 
+    /**
+     * Cria um endereço salvo (porte do original): vira padrão se for o
+     * primeiro ou se vier marcado; ao virar padrão, desmarca os demais.
+     */
+    suspend fun createSavedAddress(userId: String, accessToken: String, address: SavedAddress): SavedAddress? {
+        if (userId.isBlank() || accessToken.isBlank() || address.street.isBlank() || address.number.isBlank()) return null
+        val existing = fetchSavedAddresses(userId, accessToken)
+        val makeDefault = address.isDefault || existing.isEmpty()
+        if (makeDefault && existing.isNotEmpty()) {
+            val clearBody = buildJsonObject {
+                putBool("is_default", false)
+            }.toString()
+            val (clearOk, _) = restPatchRaw(
+                "$SUPABASE_URL/rest/v1/saved_addresses?user_id=eq.$userId",
+                clearBody, bearer = accessToken
+            )
+            if (!clearOk) return null
+        }
+        val body = buildJsonObject {
+            putStr("user_id", userId)
+            putStr("label", address.label.ifBlank { "Casa" })
+            putStr("street", address.street)
+            putStr("number", address.number)
+            putStr("complement", address.complement)
+            putStr("neighborhood", address.neighborhood)
+            putStr("city", address.city.trim())
+            putStr("state", normalizeBrazilianUf(address.state))
+            putStr("reference_point", address.referencePoint)
+            putStr("cep", address.cep)
+            address.latitude?.let { putNum("latitude", it) }
+            address.longitude?.let { putNum("longitude", it) }
+            putBool("pin_confirmed", address.pinConfirmed)
+            putBool("is_default", makeDefault)
+        }.toString()
+        val (ok, text) = restPostRaw(
+            "$SUPABASE_URL/rest/v1/saved_addresses",
+            body, bearer = accessToken, prefer = "return=representation"
+        )
+        if (!ok) return null
+        return parseSavedAddresses(text).firstOrNull()
+    }
+
+    /** Define o endereço padrão (desmarca os demais antes). */
+    suspend fun setDefaultSavedAddress(userId: String, addressId: String, accessToken: String): Boolean {
+        if (userId.isBlank() || addressId.isBlank() || accessToken.isBlank()) return false
+        val clearBody = buildJsonObject {
+            putBool("is_default", false)
+        }.toString()
+        val (clearOk, _) = restPatchRaw(
+            "$SUPABASE_URL/rest/v1/saved_addresses?user_id=eq.$userId",
+            clearBody, bearer = accessToken
+        )
+        if (!clearOk) return false
+        val defaultBody = buildJsonObject {
+            putBool("is_default", true)
+        }.toString()
+        val (ok, _) = restPatchRaw(
+            "$SUPABASE_URL/rest/v1/saved_addresses?id=eq.$addressId&user_id=eq.$userId",
+            defaultBody, bearer = accessToken
+        )
+        return ok
+    }
+
+    /** Exclui um endereço salvo do próprio usuário. */
+    suspend fun deleteSavedAddress(userId: String, addressId: String, accessToken: String): Boolean {
+        if (userId.isBlank() || addressId.isBlank() || accessToken.isBlank()) return false
+        val (ok, _) = restDeleteRaw(
+            "$SUPABASE_URL/rest/v1/saved_addresses?id=eq.$addressId&user_id=eq.$userId",
+            bearer = accessToken
+        )
+        return ok
+    }
+
+    // ------------------------------------------------------------------
+    // (i) CARDÁPIO E DISPONIBILIDADE — porte de SupabaseClient
+    // (fetchMenuSectionsForStore, fetchAddonGroupsForStore,
+    // fetchProductAddonGroupsMap, fetchAddonItemsForStore,
+    // fetchAddonsForProduct, fetchStoreDeliveryAvailability).
+    // ------------------------------------------------------------------
+
+    private fun parseAddonGroup(item: JsonObject): AddonGroup = AddonGroup(
+        id = item.optString("id"),
+        storeId = item.optNullableString("store_id"),
+        productId = item.optNullableString("product_id"),
+        name = item.optString("name").ifBlank { "Adicionais" },
+        minSelect = item.optInt("min_select", 0),
+        maxSelect = item.optInt("max_select", 1),
+        sortOrder = item.optInt("sort_order", 0),
+        priceReplacesBase = item.optBoolean("price_replaces_base", false)
+    )
+
+    private fun parseAddonItem(item: JsonObject, groupIdOverride: String? = null): AddonItem? {
+        val id = item.optString("id")
+        val groupId = groupIdOverride ?: item.optString("group_id").ifBlank { item.optString("addon_group_id") }
+        val name = item.optString("name")
+        if (id.isBlank() || groupId.isBlank() || name.isBlank()) return null
+        return AddonItem(
+            id = id,
+            groupId = groupId,
+            name = name,
+            price = item.optDouble("price", 0.0),
+            sortOrder = item.optInt("sort_order", 0),
+            isAvailable = item.optBoolean("is_available", true)
+        )
+    }
+
+    /**
+     * Seções do cardápio da loja. Igual ao original: se a consulta filtrada
+     * falhar, tenta a lista completa (comportamento herdado do app atual).
+     */
+    suspend fun fetchMenuSectionsForStore(storeId: String): List<MenuSection> {
+        var (ok, text) = restGetRaw(
+            "$SUPABASE_URL/rest/v1/menu_sections?select=*&store_id=eq.$storeId&order=sort_order.asc"
+        )
+        if (!ok) {
+            val fallback = restGetRaw("$SUPABASE_URL/rest/v1/menu_sections?select=*")
+            ok = fallback.first
+            text = fallback.second
+        }
+        if (!ok || text.isBlank()) return emptyList()
+        return parseObjects(text).mapNotNull { item ->
+            val id = item.optString("id")
+            val name = item.optString("name")
+            if (id.isBlank() || name.isBlank()) null
+            else MenuSection(
+                id = id,
+                storeId = storeId,
+                name = name,
+                sortOrder = item.optInt("sort_order", 0)
+            )
+        }.sortedBy { it.sortOrder }
+    }
+
+    /** Grupos de adicionais da loja (mesmo fallback do original). */
+    suspend fun fetchAddonGroupsForStore(storeId: String): List<AddonGroup> {
+        var (ok, text) = restGetRaw(
+            "$SUPABASE_URL/rest/v1/addon_groups?store_id=eq.$storeId&order=sort_order.asc"
+        )
+        if (!ok) {
+            val fallback = restGetRaw("$SUPABASE_URL/rest/v1/addon_groups?select=*")
+            ok = fallback.first
+            text = fallback.second
+        }
+        if (!ok || text.isBlank()) return emptyList()
+        return parseObjects(text)
+            .map { parseAddonGroup(it) }
+            .filter { it.id.isNotBlank() }
+            .sortedBy { it.sortOrder }
+    }
+
+    /** Mapa produto → grupos vinculados (tabela product_addon_groups inteira). */
+    suspend fun fetchProductAddonGroupsMap(): Map<String, List<String>> {
+        val (ok, text) = restGetRaw("$SUPABASE_URL/rest/v1/product_addon_groups?select=*")
+        if (!ok || text.isBlank()) return emptyMap()
+        val map = mutableMapOf<String, MutableList<String>>()
+        parseObjects(text).forEach { item ->
+            val productId = item.optString("product_id")
+            val addonGroupId = item.optString("addon_group_id")
+            if (productId.isNotBlank() && addonGroupId.isNotBlank()) {
+                map.getOrPut(productId) { mutableListOf() }.add(addonGroupId)
+            }
+        }
+        return map
+    }
+
+    /** Todos os itens de adicionais (ordenados), igual ao original. */
+    suspend fun fetchAddonItemsForStore(): List<AddonItem> {
+        val (ok, text) = restGetRaw("$SUPABASE_URL/rest/v1/addon_items?select=*&order=sort_order.asc")
+        if (!ok || text.isBlank()) return emptyList()
+        return parseObjects(text)
+            .mapNotNull { parseAddonItem(it) }
+            .sortedBy { it.sortOrder }
+    }
+
+    /** Grupos e itens vinculados diretamente a um produto (diretos + via product_addon_groups). */
+    suspend fun fetchAddonsForProduct(productId: String): ProductAddonsPayload {
+        if (productId.isBlank()) return ProductAddonsPayload()
+        val directRows = restGetRaw(
+            "$SUPABASE_URL/rest/v1/addon_groups?product_id=eq.$productId&order=sort_order.asc"
+        ).let { (ok, text) -> if (ok && text.isNotBlank()) parseObjects(text) else null }
+        val linkedRows = restGetRaw(
+            "$SUPABASE_URL/rest/v1/product_addon_groups?product_id=eq.$productId&select=addon_group_id"
+        ).let { (ok, text) -> if (ok && text.isNotBlank()) parseObjects(text) else null }
+        val linkedIds = linkedRows?.map { it.optString("addon_group_id") }?.filter { it.isNotBlank() } ?: emptyList()
+        val directGroups = directRows?.map { parseAddonGroup(it) }?.filter { it.id.isNotBlank() } ?: emptyList()
+        val linkedGroups = if (linkedIds.isEmpty()) {
+            emptyList()
+        } else {
+            val rows = restGetRaw(
+                "$SUPABASE_URL/rest/v1/addon_groups?id=in.(${linkedIds.joinToString(",")})&order=sort_order.asc"
+            ).let { (ok, text) -> if (ok && text.isNotBlank()) parseObjects(text) else null }
+            rows?.map { parseAddonGroup(it) }?.filter { it.id.isNotBlank() } ?: emptyList()
+        }
+        val groups = (directGroups + linkedGroups).distinctBy { it.id }.sortedBy { it.sortOrder }
+        if (groups.isEmpty()) return ProductAddonsPayload()
+        val groupIds = groups.joinToString(",") { it.id }
+        val itemRows = restGetRaw(
+            "$SUPABASE_URL/rest/v1/addon_items?group_id=in.($groupIds)&order=sort_order.asc"
+        ).let { (ok, text) -> if (ok && text.isNotBlank()) parseObjects(text) else null }
+        val items = itemRows?.mapNotNull { parseAddonItem(it, groupIdOverride = null) } ?: emptyList()
+        return ProductAddonsPayload(groups = groups, items = items.sortedBy { it.sortOrder })
+    }
+
+    /** Disponibilidade de entrega da loja (RPC store_delivery_availability, anon). */
+    suspend fun fetchStoreDeliveryAvailability(storeId: String): StoreDeliveryAvailability? {
+        if (storeId.isBlank()) return null
+        val body = buildJsonObject {
+            putStr("_store_id", storeId)
+        }.toString()
+        val (ok, text) = restPostRaw("$SUPABASE_URL/rest/v1/rpc/store_delivery_availability", body)
+        if (!ok || text.isBlank()) return null
+        val row = parseObjects(text).firstOrNull() ?: return null
+        return StoreDeliveryAvailability(
+            canAcceptDeliveryOrders = row.optBoolean("can_accept_delivery_orders", false),
+            availableDriversCount = row.optInt("available_drivers_count", 0),
+            reasonCode = row.optString("reason_code"),
+            reasonMessage = row.optString("reason_message")
+        )
+    }
+
     private fun parseSavedAddresses(json: String): List<SavedAddress> {
         return try {
             val array = Json.parseToJsonElement(json).jsonArray
@@ -2054,6 +2297,469 @@ object SupabaseApi {
             longitude = longitude,
             updatedAt = first.optString("updated_at")
         )
+    }
+
+    // ------------------------------------------------------------------
+    // (g) NOTIFICAÇÕES — porte de SupabaseClient.fetchClientNotifications e
+    // markClientNotificationRead do Android.
+    // ------------------------------------------------------------------
+
+    /**
+     * Notificações do cliente (edge function client-notifications).
+     * Igual ao original: LANÇA exceção em erro (sessão sem token ou HTTP de
+     * erro) — a tela mostra o erro em vez de uma lista vazia falsa.
+     */
+    suspend fun fetchClientNotifications(accessToken: String): List<ClientNotification> {
+        if (accessToken.isBlank()) {
+            throw IllegalStateException("Sua sessão não possui autorização para carregar notificações.")
+        }
+        val (ok, text) = restGetRaw(
+            "$SUPABASE_URL/functions/v1/client-notifications",
+            bearer = accessToken
+        )
+        if (!ok) {
+            throw IllegalStateException(parseErrorMessage(text, "Não foi possível carregar as notificações."))
+        }
+        val root = try {
+            json.parseToJsonElement(text).jsonObject
+        } catch (_: Exception) {
+            return emptyList()
+        }
+        val array = root["notifications"] as? JsonArray ?: return emptyList()
+        return array.mapNotNull { element ->
+            val item = element as? JsonObject ?: return@mapNotNull null
+            val id = item.optString("id")
+            if (id.isBlank()) return@mapNotNull null
+            val payloadObj = item["payload"] as? JsonObject
+            val payload = payloadObj?.entries?.associate { (key, value) ->
+                key to ((value as? JsonPrimitive)?.content ?: "")
+            } ?: emptyMap()
+            ClientNotification(
+                id = id,
+                orderId = item.optString("order_id").takeIf { it.isNotBlank() },
+                type = item.optNullableString("notification_type") ?: "order_update",
+                title = item.optNullableString("title") ?: "ItaSuper",
+                body = item.optString("body"),
+                payload = payload,
+                readAt = item.optString("read_at").takeIf { it.isNotBlank() },
+                createdAt = item.optString("created_at")
+            )
+        }
+    }
+
+    /** Marca uma notificação própria como lida; o RLS impede mexer nas de outros clientes. */
+    suspend fun markClientNotificationRead(notificationId: String, accessToken: String): Boolean {
+        if (notificationId.isBlank() || accessToken.isBlank()) return false
+        val body = buildJsonObject {
+            putStr("read_at", Clock.System.now().toString())
+        }.toString()
+        val (ok, _) = restPatchRaw(
+            "$SUPABASE_URL/rest/v1/client_notifications?id=eq.$notificationId",
+            body, bearer = accessToken, prefer = "return=minimal"
+        )
+        return ok
+    }
+
+    // ------------------------------------------------------------------
+    // (h) AÇÕES DO PEDIDO, AVALIAÇÕES, CARTEIRA/FIDELIDADE E COTAÇÃO —
+    // porte de SupabaseClient do Android (callOrderRpc, submitOrderRating,
+    // getStoreReviews, fetchWalletBalance, quoteDelivery etc.).
+    // ------------------------------------------------------------------
+
+    private suspend fun callOrderRpc(functionName: String, orderId: String, accessToken: String): Result<Unit> {
+        val body = buildJsonObject {
+            putStr("_order_id", orderId)
+        }.toString()
+        val (ok, text) = restPostRaw("$SUPABASE_URL/rest/v1/rpc/$functionName", body, bearer = accessToken)
+        return if (ok) Result.success(Unit)
+        else Result.failure(IllegalStateException(parseErrorMessage(text, "Não foi possível atualizar o pedido.")))
+    }
+
+    /** Confirma a entrega pela mesma RPC protegida usada pelo cliente web. */
+    suspend fun confirmDeliveryByClient(orderId: String, accessToken: String): Result<Unit> =
+        callOrderRpc("client_confirm_delivery", orderId, accessToken)
+
+    /** Aplica a política oficial de cancelamento do pedido no backend. */
+    suspend fun cancelOrderByClient(orderId: String, accessToken: String): Result<Unit> =
+        callOrderRpc("apply_cancellation_policy", orderId, accessToken)
+
+    /**
+     * Abre um caso de devolução exclusivamente para PIX Direto confirmado.
+     * Identidade e elegibilidade são validadas pela RPC.
+     */
+    suspend fun requestPixDiretoRefund(
+        orderId: String,
+        reason: String,
+        description: String,
+        accessToken: String
+    ): Result<Unit> {
+        if (orderId.isBlank() || accessToken.isBlank()) {
+            return Result.failure(IllegalArgumentException("Sessão ou pedido inválido."))
+        }
+        val body = buildJsonObject {
+            putStr("p_order_id", orderId)
+            putStr("p_reason", reason)
+            if (description.trim().isNotBlank()) putStr("p_description", description.trim()) else put("p_description", JsonNull)
+            put("p_evidence_urls", buildJsonArray { })
+        }.toString()
+        val (ok, text) = restPostRaw(
+            "$SUPABASE_URL/rest/v1/rpc/create_pix_direto_refund_case",
+            body, bearer = accessToken, prefer = "return=minimal"
+        )
+        if (ok) return Result.success(Unit)
+        val message = try {
+            val obj = json.parseToJsonElement(text).jsonObject
+            obj.optString("message").ifBlank { obj.optString("hint") }
+        } catch (_: Exception) { "" }
+        return Result.failure(
+            IllegalStateException(message.ifBlank { "Não foi possível abrir a solicitação de PIX Direto." })
+        )
+    }
+
+    private suspend fun callCheckoutRpc(functionName: String, bodyJson: String, accessToken: String): Result<Unit> {
+        if (accessToken.isBlank()) {
+            return Result.failure(IllegalStateException("Sua sessão expirou."))
+        }
+        val (ok, text) = restPostRaw("$SUPABASE_URL/rest/v1/rpc/$functionName", bodyJson, bearer = accessToken)
+        return if (ok) Result.success(Unit)
+        else Result.failure(IllegalStateException(parseErrorMessage(text, "Não foi possível aplicar o benefício.")))
+    }
+
+    suspend fun applyWalletDiscount(orderId: String, userId: String, discountAmount: Double, accessToken: String): Result<Unit> {
+        val body = buildJsonObject {
+            putStr("_order_id", orderId)
+            putStr("_user_id", userId)
+            putNum("_discount_amount", discountAmount)
+        }.toString()
+        return callCheckoutRpc("apply_wallet_discount", body, accessToken)
+    }
+
+    suspend fun redeemLoyaltyPoints(orderId: String, storeId: String, pointsToUse: Int, accessToken: String): Result<Unit> {
+        val body = buildJsonObject {
+            putStr("_order_id", orderId)
+            putStr("_store_id", storeId)
+            putNum("_points_to_use", pointsToUse)
+        }.toString()
+        return callCheckoutRpc("redeem_loyalty_points", body, accessToken)
+    }
+
+    /** Saldo disponível da carteira do cliente autenticado (0 em falha). */
+    suspend fun fetchWalletBalance(userId: String, accessToken: String): WalletBalance {
+        if (userId.isBlank() || accessToken.isBlank()) return WalletBalance()
+        val (ok, text) = restGetRaw(
+            "$SUPABASE_URL/rest/v1/user_wallet?select=balance&user_id=eq.$userId&limit=1",
+            bearer = accessToken
+        )
+        if (!ok) return WalletBalance()
+        val first = parseObjects(text).firstOrNull() ?: return WalletBalance()
+        return WalletBalance(balance = first.optDouble("balance", 0.0))
+    }
+
+    /** Configuração de fidelidade habilitada para a loja (null se não houver). */
+    suspend fun fetchLoyaltyConfig(storeId: String, accessToken: String): LoyaltyConfig? {
+        if (storeId.isBlank() || accessToken.isBlank()) return null
+        val (ok, text) = restGetRaw(
+            "$SUPABASE_URL/rest/v1/loyalty_config?select=store_id,is_enabled,min_points_redeem,discount_per_point,max_discount_percent,points_per_real&store_id=eq.$storeId&is_enabled=eq.true&limit=1",
+            bearer = accessToken
+        )
+        if (!ok) return null
+        val obj = parseObjects(text).firstOrNull() ?: return null
+        return LoyaltyConfig(
+            storeId = obj.optString("store_id").ifBlank { storeId },
+            isEnabled = obj.optBoolean("is_enabled", false),
+            minPointsRedeem = obj.optInt("min_points_redeem", 0).takeIf { it > 0 } ?: 50,
+            discountPerPoint = obj.optDouble("discount_per_point", 0.0).takeIf { it > 0 } ?: 0.10,
+            maxDiscountPercent = obj.optDouble("max_discount_percent", 0.0).takeIf { it > 0 } ?: 20.0,
+            pointsPerReal = obj.optInt("points_per_real", 0).takeIf { it > 0 } ?: 1
+        )
+    }
+
+    /** Pontos do cliente na loja (0 em falha). */
+    suspend fun fetchLoyaltyBalance(userId: String, storeId: String, accessToken: String): LoyaltyBalance {
+        if (userId.isBlank() || storeId.isBlank() || accessToken.isBlank()) return LoyaltyBalance()
+        val (ok, text) = restGetRaw(
+            "$SUPABASE_URL/rest/v1/loyalty_points?select=points&user_id=eq.$userId&store_id=eq.$storeId&limit=1",
+            bearer = accessToken
+        )
+        if (!ok) return LoyaltyBalance()
+        val points = parseObjects(text).firstOrNull()?.optInt("points", 0) ?: 0
+        return LoyaltyBalance(points = points.coerceAtLeast(0))
+    }
+
+    /** true/false se já usou o cupom; null em falha (nunca liberar por engano). */
+    suspend fun hasCouponUsage(couponId: String, userId: String, accessToken: String): Boolean? {
+        if (couponId.isBlank() || userId.isBlank() || accessToken.isBlank()) return null
+        val (ok, text) = restGetRaw(
+            "$SUPABASE_URL/rest/v1/coupon_uses?coupon_id=eq.$couponId&user_id=eq.$userId&select=id&limit=1",
+            bearer = accessToken
+        )
+        if (!ok) return null
+        return parseArray(text).isNotEmpty()
+    }
+
+    /** Retorna null em falha de rede para que cupons de primeiro pedido não sejam aceitos por engano. */
+    suspend fun hasNonCancelledOrders(userId: String, accessToken: String): Boolean? {
+        if (userId.isBlank() || accessToken.isBlank()) return null
+        val (ok, text) = restGetRaw(
+            "$SUPABASE_URL/rest/v1/orders?client_id=eq.$userId&status=neq.cancelado&select=id&limit=1",
+            bearer = accessToken
+        )
+        if (!ok) return null
+        return parseArray(text).isNotEmpty()
+    }
+
+    /** Registra o consumo do cupom sem bloquear a confirmação do pedido. */
+    suspend fun registerCouponUse(couponId: String, userId: String, orderId: String, accessToken: String) {
+        if (couponId.isBlank() || userId.isBlank() || orderId.isBlank() || accessToken.isBlank()) return
+        val body = buildJsonObject {
+            putStr("coupon_id", couponId)
+            putStr("user_id", userId)
+            putStr("order_id", orderId)
+        }.toString()
+        restPostRaw(
+            "$SUPABASE_URL/rest/v1/coupon_uses",
+            body, bearer = accessToken, prefer = "return=minimal"
+        )
+    }
+
+    /**
+     * Envia a avaliação da loja (tabela reviews, 1 por pessoa por loja via
+     * UPSERT). Comentário obrigatório (mín. 12 caracteres) em notas 1–3 —
+     * espelha o CHECK do banco. Tags vão para review_tags (falha ignorada).
+     */
+    suspend fun submitOrderRating(
+        orderId: String,
+        storeId: String,
+        userId: String,
+        rating: Int,
+        comment: String,
+        accessToken: String,
+        isPublic: Boolean = true,
+        tags: List<Pair<String, String>> = emptyList(),
+        source: String = "post_delivery"
+    ): Boolean {
+        if (orderId.isBlank() || storeId.isBlank() || userId.isBlank() || accessToken.isBlank() || rating !in 1..5) return false
+        if (rating <= 3 && comment.trim().length < 12) return false
+        val body = buildJsonObject {
+            putStr("order_id", orderId)
+            putStr("author_id", userId)
+            putStr("target_type", "store")
+            putStr("target_id", storeId)
+            putNum("rating", rating)
+            val trimmed = comment.trim()
+            if (trimmed.isNotBlank()) putStr("comment", trimmed) else put("comment", JsonNull)
+            putStr("visibility", if (isPublic) "public" else "private")
+            putStr("source", source)
+        }.toString()
+        val (ok, text) = restPostRaw(
+            "$SUPABASE_URL/rest/v1/reviews?on_conflict=author_id,target_id",
+            body, bearer = accessToken,
+            prefer = "return=representation,resolution=merge-duplicates"
+        )
+        if (!ok) return false
+        val reviewId = parseObjects(text).firstOrNull()?.optString("id").orEmpty()
+        if (reviewId.isBlank()) return false
+        if (tags.isNotEmpty()) {
+            val tagsBody = buildJsonArray {
+                tags.forEach { (tag, sentiment) ->
+                    add(buildJsonObject {
+                        putStr("review_id", reviewId)
+                        putStr("tag", tag)
+                        putStr("sentiment", sentiment)
+                    })
+                }
+            }.toString()
+            restPostRaw(
+                "$SUPABASE_URL/rest/v1/review_tags",
+                tagsBody, bearer = accessToken, prefer = "return=minimal"
+            )
+        }
+        return true
+    }
+
+    /** Agregado de avaliações da loja (nota média 90d + histograma). */
+    suspend fun getStoreRatingAggregate(storeId: String): StoreRatingAggregate? {
+        if (storeId.isBlank()) return null
+        val (ok, text) = restGetRaw(
+            "$SUPABASE_URL/rest/v1/store_rating_aggregates?store_id=eq.$storeId&period=eq.90d&select=*"
+        )
+        if (!ok) return null
+        val obj = parseObjects(text).firstOrNull() ?: return null
+        return StoreRatingAggregate(
+            avgRating = obj.optDouble("avg_rating", 0.0),
+            reviewCount = obj.optInt("review_count", 0),
+            distribution = (5 downTo 1).associateWith { stars -> obj.optInt("dist_$stars", 0) }
+        )
+    }
+
+    /** Avaliações públicas aprovadas da loja, com tags, respostas e nome público do autor. */
+    suspend fun getStoreReviews(storeId: String, limit: Int = 20): List<StoreReview> {
+        if (storeId.isBlank()) return emptyList()
+        val (ok, text) = restGetRaw(
+            "$SUPABASE_URL/rest/v1/reviews?target_type=eq.store&target_id=eq.$storeId" +
+                "&status=eq.approved&visibility=eq.public&order=created_at.desc&limit=$limit" +
+                "&select=id,author_id,rating,comment,created_at,review_tags(tag,sentiment),review_responses(message,created_at)"
+        )
+        if (!ok) return emptyList()
+        val items = parseObjects(text)
+        if (items.isEmpty()) return emptyList()
+        // Nome público do avaliador (view review_author_names; fallback "Cliente").
+        val authorIds = items.map { it.optString("author_id") }.filter { it.isNotBlank() }.distinct()
+        val nameMap = mutableMapOf<String, String>()
+        if (authorIds.isNotEmpty()) {
+            val (namesOk, namesText) = restGetRaw(
+                "$SUPABASE_URL/rest/v1/review_author_names?user_id=in.(${authorIds.joinToString(",")})&select=user_id,display_name"
+            )
+            if (namesOk) {
+                parseObjects(namesText).forEach { row ->
+                    val uid = row.optString("user_id")
+                    if (uid.isNotBlank()) nameMap[uid] = row.optString("display_name").ifBlank { "Cliente" }
+                }
+            }
+        }
+        return items.map { item ->
+            val tags = (item["review_tags"] as? JsonArray)?.mapNotNull { tagEl ->
+                val tagObj = tagEl as? JsonObject ?: return@mapNotNull null
+                tagObj.optString("tag") to tagObj.optString("sentiment")
+            } ?: emptyList()
+            val responses = (item["review_responses"] as? JsonArray)?.mapNotNull { respEl ->
+                val respObj = respEl as? JsonObject ?: return@mapNotNull null
+                StoreReviewResponse(
+                    message = respObj.optString("message"),
+                    createdAt = respObj.optString("created_at")
+                )
+            } ?: emptyList()
+            StoreReview(
+                id = item.optString("id"),
+                authorId = item.optString("author_id"),
+                authorName = nameMap[item.optString("author_id")] ?: "Cliente",
+                rating = item.optInt("rating", 0),
+                comment = item.optString("comment"),
+                createdAt = item.optString("created_at"),
+                tags = tags,
+                responses = responses
+            )
+        }
+    }
+
+    /** IDs das lojas que o usuário já avaliou (reviews target_id). */
+    suspend fun fetchRatedOrderIds(userId: String, accessToken: String): Set<String> {
+        if (userId.isBlank() || accessToken.isBlank()) return emptySet()
+        val (ok, text) = restGetRaw(
+            "$SUPABASE_URL/rest/v1/reviews?select=target_id&author_id=eq.$userId&target_type=eq.store",
+            bearer = accessToken
+        )
+        if (!ok) return emptySet()
+        return parseObjects(text)
+            .map { it.optString("target_id") }
+            .filter { it.isNotBlank() }
+            .toSet()
+    }
+
+    /**
+     * Cotação oficial de entrega (edge function quote-delivery): única fonte
+     * final de endereço normalizado, coordenadas, área atendida e taxa.
+     * Falhas viram DeliveryQuoteFailure com a razão (a UI traduz a mensagem).
+     */
+    suspend fun quoteDelivery(
+        storeId: String,
+        subtotal: Double,
+        address: DeliveryAddressInput,
+        accessToken: String
+    ): DeliveryQuoteResult {
+        if (storeId.isBlank() || accessToken.isBlank()) {
+            return DeliveryQuoteResult(failure = DeliveryQuoteFailure("unauthorized"))
+        }
+        if (!address.isComplete()) {
+            val reason = if (address.normalizedCep().length != 8) "invalid_cep" else "address_unavailable"
+            return DeliveryQuoteResult(failure = DeliveryQuoteFailure(reason))
+        }
+        return try {
+            val body = buildJsonObject {
+                putStr("store_id", storeId)
+                putStr("fulfillment", "delivery")
+                putNum("subtotal", subtotal)
+                put("address", buildJsonObject {
+                    putStr("street", address.street.trim())
+                    putStr("number", address.number.trim())
+                    putStr("complement", address.complement.trim())
+                    putStr("neighborhood", address.neighborhood.trim())
+                    putStr("city", address.city.trim())
+                    putStr("state", address.normalizedState())
+                    putStr("cep", address.normalizedCep())
+                })
+            }.toString()
+            val response: HttpResponse = client.post("$SUPABASE_URL/functions/v1/quote-delivery") {
+                header("apikey", SUPABASE_ANON_KEY)
+                header("Authorization", "Bearer $accessToken")
+                contentType(ContentType.Application.Json)
+                setBody(body)
+            }
+            val text = response.bodyAsText()
+            val payload = try {
+                json.parseToJsonElement(text).jsonObject
+            } catch (_: Exception) {
+                null
+            }
+            if (!response.status.isSuccess() || payload == null || !payload.optBoolean("ok", false)) {
+                val reason = when {
+                    response.status.value == 401 || response.status.value == 403 -> "unauthorized"
+                    else -> payload?.optNullableString("reason") ?: "quote_unreachable"
+                }
+                val distance = payload?.get("distance") as? JsonObject
+                return DeliveryQuoteResult(
+                    failure = DeliveryQuoteFailure(
+                        reason = reason,
+                        distanceKm = distance?.optFiniteDouble("km"),
+                        maxDistanceKm = distance?.optFiniteDouble("max_km")
+                    )
+                )
+            }
+            val destinationJson = payload["destination"] as? JsonObject
+            val pricingJson = payload["pricing"] as? JsonObject
+            val distanceJson = payload["distance"] as? JsonObject
+            if (destinationJson == null || pricingJson == null || distanceJson == null) {
+                return DeliveryQuoteResult(failure = DeliveryQuoteFailure("address_unavailable"))
+            }
+            val destination = DeliveryQuoteDestination(
+                normalizedAddress = destinationJson.optNullableString("normalized_address").orEmpty(),
+                cep = destinationJson.optNullableString("cep").orEmpty().filter(Char::isDigit),
+                city = destinationJson.optNullableString("city").orEmpty(),
+                state = destinationJson.optNullableString("state").orEmpty().uppercase(),
+                neighborhood = destinationJson.optNullableString("neighborhood").orEmpty(),
+                latitude = destinationJson.optFiniteDouble("lat") ?: Double.NaN,
+                longitude = destinationJson.optFiniteDouble("lng") ?: Double.NaN,
+                precision = destinationJson.optNullableString("precision").orEmpty().ifBlank { "cep" }
+            )
+            val quote = DeliveryQuote(
+                fulfillment = payload.optNullableString("fulfillment").orEmpty(),
+                destination = destination,
+                distance = DeliveryQuoteDistance(
+                    km = distanceJson.optFiniteDouble("km") ?: 0.0,
+                    source = distanceJson.optNullableString("source").orEmpty().ifBlank { "haversine" },
+                    maxKm = distanceJson.optFiniteDouble("max_km"),
+                    eligible = distanceJson.optBoolean("eligible", false)
+                ),
+                pricing = DeliveryQuotePricing(
+                    storeDeliveryBase = pricingJson.optFiniteDouble("store_delivery_base") ?: 0.0,
+                    platformFeeCustomer = pricingJson.optFiniteDouble("platform_fee_customer") ?: 0.0,
+                    platformFeeStoreAbsorbed = pricingJson.optFiniteDouble("platform_fee_store_absorbed") ?: 0.0,
+                    deliveryFee = pricingJson.optFiniteDouble("delivery_fee") ?: Double.NaN,
+                    vipOverrideApplied = pricingJson.optFiniteDouble("vip_override_applied"),
+                    splitMode = pricingJson.optNullableString("split_mode"),
+                    planType = pricingJson.optNullableString("plan_type"),
+                    freeDeliveryApplied = pricingJson.optBoolean("free_delivery_applied", false)
+                ),
+                policyVersion = payload.optInt("policy_version", 1)
+            )
+            if (!quote.isSuccessfulDelivery) {
+                DeliveryQuoteResult(failure = DeliveryQuoteFailure("quote_unreachable"))
+            } else {
+                DeliveryQuoteResult(quote = quote)
+            }
+        } catch (_: Exception) {
+            DeliveryQuoteResult(failure = DeliveryQuoteFailure("quote_unreachable"))
+        }
     }
 
     /**

@@ -207,7 +207,9 @@ fun App() {
                                         onExploreClick = { navigator.navigateTo(AppScreen.HOME) },
                                         onTrackDelivery = { navigator.openTracking(it) }
                                     )
-                                    AppScreen.NOTIFICATIONS -> NotificationsScreen()
+                                    AppScreen.NOTIFICATIONS -> NotificationsScreen(
+                                        onOpenOrder = { navigator.navigateTo(AppScreen.ORDERS) }
+                                    )
                                     AppScreen.PROFILE -> ProfileScreen(
                                         onLogout = { UserSessionRepository.logout() },
                                         onNavigateToOrders = { navigator.navigateTo(AppScreen.ORDERS) }

@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -55,6 +56,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -83,11 +85,14 @@ import coil3.compose.AsyncImage
 import com.example.shared.generated.resources.Res
 import com.example.shared.generated.resources.ic_home_placeholder_smile
 import org.jetbrains.compose.resources.painterResource
+import com.example.shared.model.AddonGroup
 import com.example.shared.model.AddonItem
+import com.example.shared.model.CartItem
 import com.example.shared.model.MenuSection
 import com.example.shared.model.PizzaAddonGroup
 import com.example.shared.model.PizzaBorder
 import com.example.shared.model.Product
+import com.example.shared.model.ProductAddonsPayload
 import com.example.shared.model.SelectedAddonItem
 import com.example.shared.model.Store
 import com.example.shared.network.SupabaseApi
@@ -147,17 +152,39 @@ fun StoreDetailScreen(
         isLoadingStore = true
         storeErrorMessage = null
         try {
-            val result = SupabaseApi.fetchActiveStores()
-            val found = result.stores.find { it.id == storeId }
+            // Porte do original: busca a loja direto por ID; se falhar,
+            // mantém a loja já exibida (cache da navegação) em vez de erro.
+            val found = SupabaseApi.fetchStoreById(storeId)
             if (found != null) {
                 storeState = found
-            } else {
+            } else if (storeState == null) {
                 storeErrorMessage = "Não foi possível abrir esta loja."
             }
         } catch (_: Throwable) {
-            storeErrorMessage = "Não foi possível abrir esta loja. Verifique sua conexão."
+            if (storeState == null) {
+                storeErrorMessage = "Não foi possível abrir esta loja. Verifique sua conexão."
+            }
         }
         isLoadingStore = false
+    }
+
+    // Disponibilidade de entrega (só entrega própria): consulta a RPC uma
+    // vez por loja e atualiza hasAvailableDriver + mensagem, igual ao
+    // observeDeliveryAvailability do original.
+    LaunchedEffect(storeState?.id) {
+        val current = storeState ?: return@LaunchedEffect
+        if (!current.deliveryMode.equals("own", ignoreCase = true)) return@LaunchedEffect
+        val availability = try {
+            SupabaseApi.fetchStoreDeliveryAvailability(current.id)
+        } catch (_: Throwable) {
+            null
+        } ?: return@LaunchedEffect
+        if (storeState?.id == current.id) {
+            storeState = current.copy(
+                hasAvailableDriver = availability.canAcceptDeliveryOrders,
+                deliveryAvailabilityMessage = availability.reasonMessage
+            )
+        }
     }
 
     // Produtos: só da API real. Sem mocks.
@@ -172,12 +199,24 @@ fun StoreDetailScreen(
         }
         isLoadingProducts = false
     }
-    // Seções derivadas das categorias reais dos produtos (sem mocks).
-    val menuSections = remember(products) {
+    // Seções REAIS do cardápio (tabela menu_sections), igual ao original:
+    // mantém as anteriores quando a busca volta vazia. Sem seções reais,
+    // deriva das categorias dos produtos (fallback local).
+    var remoteSections by remember(storeId) { mutableStateOf<List<MenuSection>>(emptyList()) }
+    LaunchedEffect(storeId, storeReloadKey) {
+        val fetched = try {
+            SupabaseApi.fetchMenuSectionsForStore(storeId)
+        } catch (_: Throwable) {
+            emptyList()
+        }
+        if (fetched.isNotEmpty()) remoteSections = fetched
+    }
+    val derivedSections = remember(products) {
         products.mapNotNull { it.category.takeIf { c -> c.isNotBlank() } }
             .distinct()
             .mapIndexed { i, name -> MenuSection(id = "cat-$i", storeId = storeId, name = name, sortOrder = i) }
     }
+    val menuSections = remoteSections.ifEmpty { derivedSections }
 
     // Gate de carregamento/erro (padrão do app original: sem dados fake).
     // Após este bloco, `store` tem smart cast para non-null.
@@ -198,6 +237,71 @@ fun StoreDetailScreen(
     var selectedProduct by remember { mutableStateOf<Product?>(null) }
     var modalQuantity by remember { mutableStateOf(1) }
     var modalNotes by remember { mutableStateOf("") }
+
+    // Adicionais do produto aberto no modal — porte do openProductModal do
+    // original: abre na hora e busca os vínculos por produto
+    // (fetchAddonsForProduct); seleção por grupo com min/max.
+    var modalAddonGroups by remember { mutableStateOf<List<AddonGroup>>(emptyList()) }
+    var modalAddonItems by remember { mutableStateOf<List<AddonItem>>(emptyList()) }
+    var modalSelectedAddons by remember { mutableStateOf<Map<String, List<AddonItem>>>(emptyMap()) }
+    var modalAddonsLoading by remember { mutableStateOf(false) }
+    var modalError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(selectedProduct?.id) {
+        modalSelectedAddons = emptyMap()
+        modalError = null
+        val product = selectedProduct
+        if (product == null) {
+            modalAddonGroups = emptyList()
+            modalAddonItems = emptyList()
+            modalAddonsLoading = false
+        } else {
+            modalAddonsLoading = true
+            val payload = try {
+                SupabaseApi.fetchAddonsForProduct(product.id)
+            } catch (_: Throwable) {
+                ProductAddonsPayload()
+            }
+            if (selectedProduct?.id == product.id) {
+                modalAddonGroups = payload.groups
+                modalAddonItems = payload.items
+                modalAddonsLoading = false
+            }
+        }
+    }
+
+    fun toggleModalAddon(group: AddonGroup, item: AddonItem) {
+        val current = modalSelectedAddons[group.id] ?: emptyList()
+        val updated = if (group.maxSelect == 1) {
+            // Seleção única: tocar no mesmo item desmarca (se o grupo permite 0).
+            if (current.contains(item) && group.minSelect == 0) emptyList() else listOf(item)
+        } else {
+            if (current.contains(item)) {
+                current - item
+            } else if (group.maxSelect <= 0 || current.size < group.maxSelect) {
+                current + item
+            } else {
+                current
+            }
+        }
+        modalSelectedAddons = modalSelectedAddons + (group.id to updated)
+        modalError = null
+    }
+
+    fun selectedModalAddonItems(): List<SelectedAddonItem> =
+        modalAddonGroups.flatMap { group ->
+            (modalSelectedAddons[group.id] ?: emptyList()).map { item ->
+                SelectedAddonItem(
+                    itemId = item.id,
+                    itemName = item.name,
+                    itemPrice = item.price,
+                    groupId = group.id,
+                    groupName = group.name,
+                    priceReplacesBase = group.priceReplacesBase
+                )
+            }
+        }
+
     var isFavorite by remember { mutableStateOf(false) }
     var showBuilder by remember { mutableStateOf<String?>(null) }
 
@@ -206,6 +310,8 @@ fun StoreDetailScreen(
     // confirmação antes de esvaziar, em vez do auto-clear silencioso.
     var pendingAdd by remember(storeId) { mutableStateOf<PendingAdd?>(null) }
     var showStoreSwitch by remember(storeId) { mutableStateOf(false) }
+    // Aviso do bloqueio de farmácia (no original é snackbar com este texto).
+    var showPharmacyBlockedMessage by remember { mutableStateOf(false) }
 
     fun requestAdd(
         product: Product,
@@ -213,7 +319,9 @@ fun StoreDetailScreen(
         notes: String = "",
         addons: List<SelectedAddonItem> = emptyList()
     ) {
-        if (cart.isSwitchingStore(product)) {
+        if (cart.isPharmacyBlocked(product)) {
+            showPharmacyBlockedMessage = true
+        } else if (cart.isSwitchingStore(product)) {
             pendingAdd = PendingAdd(
                 product = product,
                 quantity = quantity,
@@ -230,6 +338,25 @@ fun StoreDetailScreen(
                 storeName = store.name
             )
         }
+    }
+
+    fun addSelectedProductToCart() {
+        val product = selectedProduct ?: return
+        // Valida os mínimos de cada grupo (mesma mensagem do original).
+        for (group in modalAddonGroups) {
+            val selected = modalSelectedAddons[group.id] ?: emptyList()
+            if (selected.size < group.minSelect) {
+                modalError = "Selecione pelo menos ${group.minSelect} opção em '${group.name}'"
+                return
+            }
+        }
+        requestAdd(
+            product,
+            quantity = modalQuantity,
+            notes = modalNotes,
+            addons = selectedModalAddonItems()
+        )
+        selectedProduct = null
     }
 
     val menuListState = rememberLazyListState()
@@ -613,13 +740,21 @@ fun StoreDetailScreen(
                 product = product,
                 quantity = modalQuantity,
                 notes = modalNotes,
+                addonGroups = modalAddonGroups,
+                addonItems = modalAddonItems,
+                selectedAddons = modalSelectedAddons,
+                addonsLoading = modalAddonsLoading,
+                errorMessage = modalError,
+                totalPrice = CartItem(
+                    product = product,
+                    quantity = modalQuantity,
+                    selectedAddons = selectedModalAddonItems()
+                ).totalPrice,
+                onToggleAddon = { group, item -> toggleModalAddon(group, item) },
                 onQuantityIncrement = { modalQuantity++ },
                 onQuantityDecrement = { if (modalQuantity > 1) modalQuantity-- },
                 onNotesChange = { modalNotes = it },
-                onAddToCartClick = {
-                    requestAdd(product, quantity = modalQuantity, notes = modalNotes)
-                    selectedProduct = null
-                }
+                onAddToCartClick = { addSelectedProductToCart() }
             )
         }
     }
@@ -651,14 +786,19 @@ fun StoreDetailScreen(
             StoreSwitchBottomSheet(
                 currentStoreName = cart.storeName,
                 onConfirm = {
-                    cart.clearCart()
-                    cart.addProduct(
-                        pending.product,
-                        quantity = pending.quantity,
-                        notes = pending.notes,
-                        addons = pending.addons,
-                        storeName = store.name
-                    )
+                    // Bloqueado (farmácia): NÃO esvazia a sacola (igual ao original).
+                    if (cart.isPharmacyBlocked(pending.product)) {
+                        showPharmacyBlockedMessage = true
+                    } else {
+                        cart.clearCart()
+                        cart.addProduct(
+                            pending.product,
+                            quantity = pending.quantity,
+                            notes = pending.notes,
+                            addons = pending.addons,
+                            storeName = store.name
+                        )
+                    }
                     pendingAdd = null
                     showStoreSwitch = false
                 },
@@ -668,6 +808,20 @@ fun StoreDetailScreen(
                 }
             )
         }
+    }
+
+    // Bloqueio de farmácia: no original é um snackbar com este texto;
+    // aqui um diálogo simples com a mesma mensagem.
+    if (showPharmacyBlockedMessage) {
+        AlertDialog(
+            onDismissRequest = { showPharmacyBlockedMessage = false },
+            text = { Text("Este item não pode ser adicionado à sacola.") },
+            confirmButton = {
+                TextButton(onClick = { showPharmacyBlockedMessage = false }) {
+                    Text("Entendi")
+                }
+            }
+        )
     }
 }
 
@@ -1454,6 +1608,13 @@ private fun ProductDetailSheetContent(
     product: Product,
     quantity: Int,
     notes: String,
+    addonGroups: List<AddonGroup> = emptyList(),
+    addonItems: List<AddonItem> = emptyList(),
+    selectedAddons: Map<String, List<AddonItem>> = emptyMap(),
+    addonsLoading: Boolean = false,
+    errorMessage: String? = null,
+    totalPrice: Double = product.price * quantity,
+    onToggleAddon: (AddonGroup, AddonItem) -> Unit = { _, _ -> },
     onQuantityIncrement: () -> Unit,
     onQuantityDecrement: () -> Unit,
     onNotesChange: (String) -> Unit,
@@ -1503,6 +1664,108 @@ private fun ProductDetailSheetContent(
             color = ItaSuperPrimary
         )
 
+        // Adicionais do produto (grupos reais da API, com min/max).
+        if (addonsLoading) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = ItaSuperPrimary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Carregando adicionais...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.DarkGray
+                )
+            }
+        }
+        addonGroups.forEach { group ->
+            val groupItems = addonItems
+                .filter { it.groupId == group.id && it.isAvailable }
+                .sortedBy { it.sortOrder }
+            if (groupItems.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = group.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (group.minSelect > 0) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = ItaSuperPrimary
+                        ) {
+                            Text(
+                                text = "Obrigatório",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+                val hint = when {
+                    group.maxSelect == 1 -> "Escolha 1 opção"
+                    group.maxSelect > 1 -> "Escolha até ${group.maxSelect}"
+                    else -> "Escolha quantos quiser"
+                }
+                Text(
+                    text = hint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                groupItems.forEach { item ->
+                    val isSelected = selectedAddons[group.id]?.contains(item) == true
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp)
+                            .clickable { onToggleAddon(group, item) },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) ItaSuperPrimary.copy(alpha = 0.08f) else Color.White,
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSelected) ItaSuperPrimary else Color.LightGray
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = item.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (item.price > 0) {
+                                Text(
+                                    text = "+ ${formatBRL(item.price)}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = ItaSuperPrimary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            if (isSelected) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "✓",
+                                    color = ItaSuperPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(16.dp))
         OutlinedTextField(
             value = notes,
@@ -1513,6 +1776,15 @@ private fun ProductDetailSheetContent(
             maxLines = 3,
             shape = RoundedCornerShape(12.dp)
         )
+
+        if (!errorMessage.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = errorMessage,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFFD32F2F)
+            )
+        }
 
         Spacer(modifier = Modifier.height(20.dp))
 
@@ -1552,7 +1824,7 @@ private fun ProductDetailSheetContent(
                 colors = ButtonDefaults.buttonColors(containerColor = ItaSuperPrimary)
             ) {
                 Text(
-                    text = "Adicionar • ${formatBRL(product.price * quantity)}",
+                    text = "Adicionar • ${formatBRL(totalPrice)}",
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
                     color = Color.White,

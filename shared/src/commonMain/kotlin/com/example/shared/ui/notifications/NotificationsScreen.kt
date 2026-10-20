@@ -40,10 +40,16 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import com.example.shared.network.SupabaseApi
+import com.example.shared.session.UserSessionRepository
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -92,40 +98,105 @@ private fun ClientNotification.matchesFilter(filter: NotificationsFilter): Boole
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NotificationsScreen() {
-    // Sem backend de notificações ainda — lista vazia (regra: nada de dado fake).
-    // TODO: implementar fetchNotifications quando houver tabela/API.
+fun NotificationsScreen(onOpenOrder: (String) -> Unit = {}) {
+    // Notificações REAIS (edge function client-notifications), com polling de
+    // 15s — porte do NotificationsViewModel/Screen do app original.
+    val session by UserSessionRepository.session.collectAsState()
+    val scope = rememberCoroutineScope()
     var notifications by remember { mutableStateOf<List<com.example.shared.model.ClientNotification>>(emptyList()) }
     var selectedFilter by remember { mutableStateOf(NotificationsFilter.ALL) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage: String? by remember { mutableStateOf(null) }
     val everHadNotifications = remember { mutableStateOf(false) }
+    // IDs dispensados por swipe: filtro local que sobrevive aos refreshes
+    // (não há endpoint de delete — igual ao original).
+    val dismissedIds = remember { mutableSetOf<String>() }
+    var loadedForUserId by remember { mutableStateOf("") }
 
     val filteredNotifications = notifications.filter { it.matchesFilter(selectedFilter) }
     val unreadCount = notifications.count { !it.isRead }
 
-    fun markRead(id: String) {
-        notifications = notifications.map {
-            if (it.id == id) it.copy(readAt = "manual") else it
+    fun loadNotifications() {
+        val s = session
+        if (!s.isLoggedIn || s.accessToken.isBlank()) {
+            notifications = emptyList()
+            isLoading = false
+            return
+        }
+        isLoading = true
+        errorMessage = null
+        scope.launch {
+            try {
+                val fetched = SupabaseApi.fetchClientNotifications(s.accessToken)
+                    .filter { it.id !in dismissedIds }
+                notifications = fetched
+                if (fetched.isNotEmpty()) everHadNotifications.value = true
+            } catch (_: Exception) {
+                errorMessage = "Não foi possível carregar as notificações."
+            }
+            isLoading = false
         }
     }
 
+    // Abre a notificação: marca como lida (otimista) e navega pro pedido.
+    fun openNotification(notification: com.example.shared.model.ClientNotification) {
+        if (!notification.isRead) {
+            notifications = notifications.map {
+                if (it.id == notification.id) it.copy(readAt = "pending") else it
+            }
+            scope.launch {
+                val marked = SupabaseApi.markClientNotificationRead(notification.id, session.accessToken)
+                if (!marked) loadNotifications()
+            }
+        }
+        notification.orderId?.takeIf { it.isNotBlank() }?.let { onOpenOrder(it) }
+    }
+
+    fun markRead(id: String) {
+        notifications.firstOrNull { it.id == id }?.let { openNotification(it) }
+    }
+
+    /** Marca todas as não-lidas como lidas (otimista; recarrega se alguma falhar). */
     fun markAllAsRead() {
-        notifications = notifications.map { it.copy(readAt = "manual") }
+        val unread = notifications.filter { !it.isRead }
+        if (unread.isEmpty() || session.accessToken.isBlank()) return
+        notifications = notifications.map {
+            if (!it.isRead) it.copy(readAt = "pending") else it
+        }
+        scope.launch {
+            var allOk = true
+            for (notification in unread) {
+                if (!SupabaseApi.markClientNotificationRead(notification.id, session.accessToken)) {
+                    allOk = false
+                }
+            }
+            if (!allOk) loadNotifications()
+        }
     }
 
     fun dismissNotification(id: String) {
+        if (id.isBlank()) return
+        dismissedIds.add(id)
         notifications = notifications.filterNot { it.id == id }
     }
 
     fun doRefresh() {
-        isLoading = true
+        loadNotifications()
     }
 
-    LaunchedEffect(isLoading) {
-        if (isLoading) {
-            delay(700)
-            isLoading = false
+    // Carga inicial + polling de 15s (igual ao original). Troca de conta
+    // recarrega do zero; logout limpa a lista.
+    LaunchedEffect(session.userId) {
+        if (session.userId.isBlank()) {
+            loadedForUserId = ""
+            notifications = emptyList()
+            return@LaunchedEffect
+        }
+        loadedForUserId = session.userId
+        loadNotifications()
+        while (isActive) {
+            delay(15_000)
+            loadNotifications()
         }
     }
 

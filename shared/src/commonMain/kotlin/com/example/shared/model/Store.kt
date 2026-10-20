@@ -157,3 +157,11 @@ fun List<Store>.sortedByRelevance(userLat: Double? = null, userLon: Double? = nu
         it.name.lowercase() 
     })
 }
+
+/** Disponibilidade de entrega da loja (RPC store_delivery_availability). */
+data class StoreDeliveryAvailability(
+    val canAcceptDeliveryOrders: Boolean = false,
+    val availableDriversCount: Int = 0,
+    val reasonCode: String = "",
+    val reasonMessage: String = ""
+)
