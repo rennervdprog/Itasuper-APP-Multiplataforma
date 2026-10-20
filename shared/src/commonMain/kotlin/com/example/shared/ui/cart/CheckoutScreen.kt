@@ -1443,7 +1443,7 @@ fun CheckoutScreen(
                             Text("Taxa de entrega", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             when {
                                 isPickup -> Text("Grátis (Retirada)", color = ItaSuperSuccess, fontWeight = FontWeight.Bold)
-                                isQuotingDelivery -> Text("Calculando...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                cart.isQuotingDelivery -> Text("Calculando...", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 !deliveryQuoteReady -> Text("A confirmar", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 cart.effectiveDeliveryFee == 0.0 -> Text("Grátis", color = ItaSuperSuccess, fontWeight = FontWeight.Bold)
                                 else -> Text(formatBRL(cart.effectiveDeliveryFee))

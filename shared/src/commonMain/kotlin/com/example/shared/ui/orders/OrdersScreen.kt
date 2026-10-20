@@ -273,6 +273,10 @@ fun OrdersScreen(
     // Erro das ações (cancelar/confirmar/avaliar/reembolso/PIX), igual ao
     // errorMessage do OrdersViewModel original.
     val actionError = remember { mutableStateOf<String?>(null) }
+    val pendingRepeatOrder = remember { mutableStateOf<Order?>(null) }
+    val pendingRepeatStoreName = remember { mutableStateOf("") }
+    val pixDialog = remember { mutableStateOf<PixPaymentUiState?>(null) }
+    val pixDirectDialog = remember { mutableStateOf<PixDirectPaymentUiState?>(null) }
 
     // Recarrega pedidos + lojas já avaliadas (porte do refreshOrders do
     // original: falha transitória NÃO apaga o histórico já exibido).
@@ -395,10 +399,6 @@ fun OrdersScreen(
     val ratingPublic = remember { mutableStateOf(true) }
     val orderPendingRefund = remember { mutableStateOf<Order?>(null) }
     val refundDescription = remember { mutableStateOf("") }
-    val pendingRepeatOrder = remember { mutableStateOf<Order?>(null) }
-    val pendingRepeatStoreName = remember { mutableStateOf("") }
-    val pixDialog = remember { mutableStateOf<PixPaymentUiState?>(null) }
-    val pixDirectDialog = remember { mutableStateOf<PixDirectPaymentUiState?>(null) }
 
     // Atualização real (pull-to-refresh recarrega do backend).
     LaunchedEffect(isRefreshing.value) {
