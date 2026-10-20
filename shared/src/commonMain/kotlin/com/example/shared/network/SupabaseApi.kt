@@ -92,6 +92,41 @@ data class OrderSubmissionResponse(
     val errorMessage: String? = null
 )
 
+data class SupabaseOperationResult(
+    val isSuccess: Boolean,
+    val errorMessage: String? = null
+)
+
+/** Porte de RemoteCustomerProfile do app Android (SupabaseClient.kt). */
+data class RemoteCustomerProfile(
+    val fullName: String = "",
+    val email: String = "",
+    val document: String = "",
+    val whatsapp: String = "",
+    val deliveryPin: String = "",
+    val cep: String = "",
+    val street: String = "",
+    val number: String = "",
+    val complement: String = "",
+    val neighborhood: String = "",
+    val city: String = "",
+    val state: String = "",
+    val referencePoint: String = "",
+    val pixType: String = "",
+    val pixKey: String = "",
+    val termsVersionAccepted: String = "",
+    val privacyVersionAccepted: String = ""
+)
+
+/** Porte de CepAddress do app Android (resposta do ViaCEP). */
+data class CepAddress(
+    val cep: String,
+    val street: String,
+    val neighborhood: String,
+    val city: String,
+    val state: String
+)
+
 /** Porte de PixPaymentResponse do app Android (SupabaseClient.kt). */
 data class PixPaymentResponse(
     val isSuccess: Boolean,
@@ -235,6 +270,24 @@ object SupabaseApi {
                 if (prefer != null) header("Prefer", prefer)
                 contentType(ContentType.Application.Json)
                 setBody(bodyJson)
+            }
+            response.status.isSuccess() to response.bodyAsText()
+        } catch (_: Exception) {
+            false to ""
+        }
+    }
+
+    private suspend fun restDeleteRaw(
+        url: String,
+        bearer: String = SUPABASE_ANON_KEY,
+        prefer: String? = null
+    ): Pair<Boolean, String> {
+        return try {
+            val response: HttpResponse = client.delete(url) {
+                header("apikey", SUPABASE_ANON_KEY)
+                header("Authorization", "Bearer $bearer")
+                header("Accept", "application/json")
+                if (prefer != null) header("Prefer", prefer)
             }
             response.status.isSuccess() to response.bodyAsText()
         } catch (_: Exception) {
@@ -1151,14 +1204,16 @@ object SupabaseApi {
     }
 
     /**
-     * Busca os endereços salvos do usuário (tabela saved_addresses).
+     * Busca os endereços salvos do usuário (tabela saved_addresses), com o JWT
+     * do usuário — porte de SupabaseClient.fetchSavedAddresses do app Android.
      * Retorna lista vazia em caso de erro (sem mocks).
      */
-    suspend fun fetchSavedAddresses(userId: String): List<SavedAddress> {
-        if (userId.isBlank()) return emptyList()
+    suspend fun fetchSavedAddresses(userId: String, accessToken: String): List<SavedAddress> {
+        if (userId.isBlank() || accessToken.isBlank()) return emptyList()
         return try {
             val (ok, json) = restGetRaw(
-                "$SUPABASE_URL/rest/v1/saved_addresses?select=*&user_id=eq.$userId&order=is_default.desc,created_at.desc"
+                "$SUPABASE_URL/rest/v1/saved_addresses?select=id,label,street,number,complement,neighborhood,city,state,reference_point,is_default,cep,latitude,longitude,pin_confirmed&user_id=eq.$userId&order=is_default.desc,created_at.desc",
+                bearer = accessToken
             )
             if (!ok || json.isBlank()) return emptyList()
             parseSavedAddresses(json)
@@ -1175,13 +1230,13 @@ object SupabaseApi {
                     val o = el.jsonObject
                     SavedAddress(
                         id = o["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
-                        label = o["label"]?.jsonPrimitive?.content ?: "Casa",
+                        label = (o["label"]?.jsonPrimitive?.content ?: "").ifBlank { "Casa" },
                         street = o["street"]?.jsonPrimitive?.content ?: "",
                         number = o["number"]?.jsonPrimitive?.content ?: "",
                         complement = o["complement"]?.jsonPrimitive?.content ?: "",
                         neighborhood = o["neighborhood"]?.jsonPrimitive?.content ?: "",
                         city = o["city"]?.jsonPrimitive?.content ?: "",
-                        state = o["state"]?.jsonPrimitive?.content ?: "",
+                        state = com.example.shared.model.normalizeBrazilianUf(o["state"]?.jsonPrimitive?.content ?: ""),
                         referencePoint = o["reference_point"]?.jsonPrimitive?.content ?: "",
                         cep = o["cep"]?.jsonPrimitive?.content ?: "",
                         latitude = o["latitude"]?.jsonPrimitive?.doubleOrNull,
@@ -1633,6 +1688,233 @@ object SupabaseApi {
             result
         } catch (_: Exception) {
             emptyList()
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // (e) SESSÃO E PERFIL — porte de SupabaseClient.refreshSession,
+    // requestPasswordRecovery, fetchCustomerProfile, insertProfile,
+    // updateCustomerPersonalProfile, updateUserProfileAddress,
+    // updateCustomerDeliveryPin, updateUserProfileNumber,
+    // deleteCustomerAccount e fetchAddressByCep do app Android.
+    // ------------------------------------------------------------------
+
+    /** Renova a sessão a partir do refresh token (grant refresh_token). */
+    suspend fun refreshSession(refreshToken: String): SupabaseAuthResponse {
+        if (refreshToken.isBlank()) {
+            return SupabaseAuthResponse(false, errorMessage = "Sua sessão expirou. Entre novamente.")
+        }
+        val body = buildJsonObject {
+            putStr("refresh_token", refreshToken)
+        }.toString()
+        val (ok, text) = authPostRaw("token?grant_type=refresh_token", body)
+        val parsed = parseAuthResponse(ok, text, "", "Sua sessão expirou. Entre novamente.")
+        // Igual ao original: sucesso só se o novo access_token não for vazio.
+        return if (parsed.isSuccess && !parsed.accessToken.isNullOrBlank()) parsed
+        else SupabaseAuthResponse(false, errorMessage = parsed.errorMessage ?: "Sua sessão expirou. Entre novamente.")
+    }
+
+    /** Envia o e-mail de redefinição de senha (mesmo link do web). */
+    suspend fun requestPasswordRecovery(email: String): SupabaseOperationResult {
+        val body = buildJsonObject {
+            putStr("email", email.trim())
+            putStr("redirect_to", "https://itasuper.com.br/cliente?mode=reset")
+        }.toString()
+        val (ok, text) = authPostRaw("recover", body)
+        return if (ok) SupabaseOperationResult(true)
+        else SupabaseOperationResult(false, parseErrorMessage(text, "Não foi possível enviar o e-mail de recuperação."))
+    }
+
+    /** Lê o perfil do cliente em `profiles` com o JWT do usuário. */
+    suspend fun fetchCustomerProfile(userId: String, accessToken: String): RemoteCustomerProfile? {
+        if (userId.isBlank() || accessToken.isBlank()) return null
+        val select = "full_name,email,document,whatsapp_number,phone,delivery_pin,cep,street,number," +
+            "complement,neighborhood,city,state,reference_point,pix_type,pix_key," +
+            "terms_version_accepted,privacy_version_accepted"
+        val (ok, text) = restGetRaw(
+            "$SUPABASE_URL/rest/v1/profiles?select=$select&user_id=eq.$userId&limit=1",
+            bearer = accessToken
+        )
+        if (!ok || text.isBlank()) return null
+        return try {
+            val row = parseArray(text).firstOrNull()?.jsonObject ?: return null
+            val whatsappNumber = row.optString("whatsapp_number").trim()
+            RemoteCustomerProfile(
+                fullName = row.optString("full_name").trim(),
+                email = row.optString("email").trim(),
+                document = row.optString("document").trim(),
+                whatsapp = whatsappNumber.ifBlank { row.optString("phone").trim() },
+                deliveryPin = row.optString("delivery_pin").trim(),
+                cep = row.optString("cep").trim(),
+                street = row.optString("street").trim(),
+                number = row.optString("number"),
+                complement = row.optString("complement").trim(),
+                neighborhood = row.optString("neighborhood").trim(),
+                city = row.optString("city").trim(),
+                state = com.example.shared.model.normalizeBrazilianUf(row.optString("state")),
+                referencePoint = row.optString("reference_point").trim(),
+                pixType = row.optString("pix_type").trim(),
+                pixKey = row.optString("pix_key").trim(),
+                termsVersionAccepted = row.optString("terms_version_accepted").trim(),
+                privacyVersionAccepted = row.optString("privacy_version_accepted").trim()
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Insere a linha do perfil após o cadastro (tabela `profiles`). */
+    suspend fun insertProfile(
+        userId: String,
+        fullName: String,
+        document: String,
+        whatsappNumber: String,
+        email: String,
+        deliveryPin: String,
+        accessToken: String? = null
+    ): Boolean {
+        val body = buildJsonObject {
+            putStr("user_id", userId)
+            putStr("full_name", fullName)
+            putStr("document", document)
+            putStr("whatsapp_number", whatsappNumber)
+            putStr("email", email)
+            putStr("delivery_pin", deliveryPin)
+        }.toString()
+        val bearer = accessToken?.takeIf { it.isNotBlank() } ?: SUPABASE_ANON_KEY
+        val (ok, _) = restPostRaw("$SUPABASE_URL/rest/v1/profiles", body, bearer = bearer, prefer = "return=minimal")
+        return ok
+    }
+
+    /** Atualiza nome e documento do perfil. */
+    suspend fun updateCustomerPersonalProfile(
+        userId: String,
+        accessToken: String,
+        fullName: String,
+        document: String
+    ): Boolean {
+        if (userId.isBlank() || accessToken.isBlank()) return false
+        val body = buildJsonObject {
+            putStr("full_name", fullName)
+            putStr("document", document)
+        }.toString()
+        val (ok, _) = restPatchRaw(
+            "$SUPABASE_URL/rest/v1/profiles?user_id=eq.$userId",
+            body, bearer = accessToken, prefer = "return=minimal"
+        )
+        return ok
+    }
+
+    /** Atualiza o endereço embutido no perfil (grava o WhatsApp em whatsapp_number e phone). */
+    suspend fun updateUserProfileAddress(
+        userId: String,
+        accessToken: String,
+        cep: String,
+        street: String,
+        number: String,
+        complement: String,
+        neighborhood: String,
+        city: String,
+        state: String,
+        referencePoint: String,
+        whatsapp: String
+    ): Boolean {
+        if (userId.isBlank()) return false
+        val body = buildJsonObject {
+            putStr("cep", cep)
+            putStr("street", street)
+            putStr("number", number)
+            putStr("complement", complement)
+            putStr("neighborhood", neighborhood)
+            putStr("city", city)
+            putStr("state", com.example.shared.model.normalizeBrazilianUf(state))
+            putStr("reference_point", referencePoint)
+            putStr("whatsapp_number", whatsapp)
+            putStr("phone", whatsapp)
+        }.toString()
+        val bearer = accessToken.takeIf { it.isNotBlank() } ?: SUPABASE_ANON_KEY
+        val (ok, _) = restPatchRaw(
+            "$SUPABASE_URL/rest/v1/profiles?user_id=eq.$userId",
+            body, bearer = bearer, prefer = "return=minimal"
+        )
+        return ok
+    }
+
+    /** Atualiza o PIN de entrega do perfil. */
+    suspend fun updateCustomerDeliveryPin(userId: String, accessToken: String, pin: String): Boolean {
+        if (userId.isBlank() || accessToken.isBlank()) return false
+        val body = buildJsonObject {
+            putStr("delivery_pin", pin)
+        }.toString()
+        val (ok, _) = restPatchRaw(
+            "$SUPABASE_URL/rest/v1/profiles?user_id=eq.$userId",
+            body, bearer = accessToken, prefer = "return=minimal"
+        )
+        return ok
+    }
+
+    /** Atualiza só o número do endereço do perfil. */
+    suspend fun updateUserProfileNumber(userId: String, accessToken: String, number: String): Boolean {
+        if (userId.isBlank()) return false
+        val body = buildJsonObject {
+            putStr("number", number)
+        }.toString()
+        val bearer = accessToken.takeIf { it.isNotBlank() } ?: SUPABASE_ANON_KEY
+        val (ok, _) = restPatchRaw(
+            "$SUPABASE_URL/rest/v1/profiles?user_id=eq.$userId",
+            body, bearer = bearer, prefer = "return=minimal"
+        )
+        return ok
+    }
+
+    /**
+     * Exclui a conta do cliente via Edge Function `delete-account`.
+     * Retorna null em sucesso; em erro, a mensagem. Igual ao original, o POST
+     * leva SOMENTE o header Authorization (sem apikey).
+     */
+    suspend fun deleteCustomerAccount(accessToken: String, reason: String): String? {
+        if (accessToken.isBlank()) return "Sua sessão expirou. Entre novamente."
+        return try {
+            val body = buildJsonObject {
+                putStr("reason", reason.ifBlank { "Solicitação do usuário" })
+            }.toString()
+            val response: HttpResponse = client.post("$SUPABASE_URL/functions/v1/delete-account") {
+                header("Authorization", "Bearer $accessToken")
+                contentType(ContentType.Application.Json)
+                setBody(body)
+            }
+            val text = response.bodyAsText()
+            if (response.status.isSuccess()) null
+            else {
+                val parsed = try {
+                    json.parseToJsonElement(text).jsonObject.optNullableString("error")
+                } catch (_: Exception) { null }
+                parsed ?: "Não foi possível excluir a conta. Tente novamente."
+            }
+        } catch (_: Exception) {
+            "Não foi possível excluir a conta. Tente novamente."
+        }
+    }
+
+    /** Busca endereço pelo CEP na API pública ViaCEP (sem autenticação). */
+    suspend fun fetchAddressByCep(cep: String): CepAddress? {
+        val digits = cep.filter { it.isDigit() }
+        if (digits.length != 8) return null
+        return try {
+            val response: HttpResponse = client.get("https://viacep.com.br/ws/$digits/json/")
+            if (!response.status.isSuccess()) return null
+            val obj = json.parseToJsonElement(response.bodyAsText()).jsonObject
+            val isError = (obj["erro"] as? JsonPrimitive)?.booleanOrNull == true
+            if (isError) null
+            else CepAddress(
+                cep = digits,
+                street = obj.optString("logradouro"),
+                neighborhood = obj.optString("bairro"),
+                city = obj.optString("localidade"),
+                state = obj.optString("uf")
+            )
+        } catch (_: Exception) {
+            null
         }
     }
 }

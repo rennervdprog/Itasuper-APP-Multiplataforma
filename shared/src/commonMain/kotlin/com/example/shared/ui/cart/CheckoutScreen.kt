@@ -147,13 +147,14 @@ fun CheckoutScreen(
     var savedAddresses by remember { mutableStateOf<List<SavedAddress>>(emptyList()) }
     val selectedAddress = savedAddresses.firstOrNull { it.id == cart.selectedAddressId }
     
-    // Carrega endereços reais do backend
+    // Carrega endereços reais do backend (com o JWT da sessão, como no original)
     LaunchedEffect(Unit) {
         try {
             val secureStorage = SecureStorage()
             val userId = secureStorage.get("session_user_id") ?: ""
-            if (userId.isNotBlank()) {
-                val addresses = SupabaseApi.fetchSavedAddresses(userId)
+            val accessToken = secureStorage.get("session_access_token") ?: ""
+            if (userId.isNotBlank() && accessToken.isNotBlank()) {
+                val addresses = SupabaseApi.fetchSavedAddresses(userId, accessToken)
                 savedAddresses = addresses
             }
         } catch (_: Exception) {

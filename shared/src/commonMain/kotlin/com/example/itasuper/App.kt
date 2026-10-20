@@ -4,17 +4,22 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.example.shared.model.Store
+import com.example.shared.network.SupabaseApi
 import com.example.shared.platform.SecureStorage
+import com.example.shared.session.UserSessionRepository
 import com.example.shared.theme.ItaSuperTheme
 import com.example.shared.ui.auth.AuthScreen
 import com.example.shared.ui.cart.CartScreen
@@ -24,8 +29,6 @@ import com.example.shared.ui.cart.rememberCartState
 import com.example.shared.ui.home.HomeScreen
 import com.example.shared.ui.legal.LegalConsentGate
 import com.example.shared.ui.legal.rememberLegalConsentState
-import com.example.shared.ui.mock.findMockStore
-import com.example.shared.ui.mock.mockUserSession
 import com.example.shared.ui.notifications.NotificationsScreen
 import com.example.shared.ui.orders.DeliveryTrackingScreen
 import com.example.shared.ui.orders.OrdersScreen
@@ -43,10 +46,10 @@ import com.example.shared.ui.navigation.rememberAppNavigator
 
 /**
  * Ponto de entrada compartilhado do app.
- * Fase 3a: navegação por estado + HomeScreen (dados mockados).
- * Fase 3d: gate de autenticação — sem sessão, mostra a AuthScreen em tela
- * cheia; o login mockado (TODO fase-rede) libera o restante do app.
- * Fase 3e: carrinho + checkout + confirmação (estado em CartHolder, mocks).
+ * Navegação por estado + sessão real do cliente (UserSessionRepository):
+ * sem sessão, mostra a AuthScreen em tela cheia; com sessão, o app abre na
+ * Home e o gate legal verifica aceites pendentes com a sessão real.
+ * Carrinho + checkout + confirmação compartilham o estado em CartState.
  * Rastreio: DeliveryTrackingScreen ("Acompanhar entrega") abre em tela cheia
  * via navigator.trackingOrderId, a partir do botão no card do pedido em andamento.
  */
@@ -56,13 +59,16 @@ fun App() {
     // Estado do carrinho vive no topo: Home (badge), Cart, Checkout e
     // confirmação compartilham a mesma instância.
     val cartState = rememberCartState()
-    // TODO(fase-rede): trocar pelo estado real da sessão (UserSessionRepository).
-    var isLoggedIn by remember { mutableStateOf(false) }
+    // Sessão real do cliente (UserSessionRepository): restaurada do storage na
+    // abertura e sincronizada com o perfil remoto, como no app original.
+    val session by UserSessionRepository.session.collectAsState()
+    LaunchedEffect(Unit) { UserSessionRepository.initialize() }
+    val isLoggedIn = session.isLoggedIn
     // ITEM 5/6 — gate de aceite dos Termos/Privacidade (espelha o MainActivity do
     // app Android): após o login, verifica mudanças legais pendentes no backend e
     // prende a tela quando o aceite é obrigatório (modo binding).
     val legalConsentState = rememberLegalConsentState()
-    val legalSession = remember(isLoggedIn) { if (isLoggedIn) mockUserSession() else null }
+    val legalSession = if (isLoggedIn) session else null
     LaunchedEffect(legalSession) {
         val session = legalSession ?: return@LaunchedEffect
         legalConsentState.checkForUpdates(session)
@@ -71,7 +77,6 @@ fun App() {
         if (!isLoggedIn) {
             AuthScreen(
                 onAuthSuccess = {
-                    isLoggedIn = true
                     navigator.navigateTo(AppScreen.HOME)
                 }
             )
@@ -81,7 +86,7 @@ fun App() {
             // e depois o de notificações, somente para quem ainda não decidiu
             // (conclusão persistida por usuário via SecureStorage).
             val permissionStorage = remember { SecureStorage() }
-            val permissionUserId = legalSession?.userId.orEmpty()
+            val permissionUserId = session.userId
             var showLocationOnboarding by remember(isLoggedIn) {
                 mutableStateOf(
                     isLoggedIn && LocationOnboardingPreferences.shouldShow(
@@ -150,11 +155,25 @@ fun App() {
                                     onBack = { navigator.closeTracking() }
                                 )
                             } else if (storeInfoId != null) {
-                                // "Sobre a loja" abre por cima da vitrine.
-                                StoreInfoScreen(
-                                    store = findMockStore(storeInfoId),
-                                    onBackClick = { navigator.closeStoreInfo() }
-                                )
+                                // "Sobre a loja" abre por cima da vitrine (loja real via API).
+                                var infoStore by remember(storeInfoId) { mutableStateOf<Store?>(null) }
+                                LaunchedEffect(storeInfoId) {
+                                    infoStore = SupabaseApi.fetchStoreById(storeInfoId)
+                                }
+                                val loadedInfoStore = infoStore
+                                if (loadedInfoStore != null) {
+                                    StoreInfoScreen(
+                                        store = loadedInfoStore,
+                                        onBackClick = { navigator.closeStoreInfo() }
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator()
+                                    }
+                                }
                             } else if (storeDetailId != null) {
                                 // Vitrine da loja (cardápio + produtos).
                                 StoreDetailScreen(
@@ -188,11 +207,11 @@ fun App() {
                                     )
                                     AppScreen.NOTIFICATIONS -> NotificationsScreen()
                                     AppScreen.PROFILE -> ProfileScreen(
-                                        onLogout = { isLoggedIn = false }
+                                        onLogout = { UserSessionRepository.logout() },
+                                        onNavigateToOrders = { navigator.navigateTo(AppScreen.ORDERS) }
                                     )
                                     AppScreen.AUTH -> AuthScreen(
                                         onAuthSuccess = {
-                                            isLoggedIn = true
                                             navigator.navigateTo(AppScreen.HOME)
                                         }
                                     )

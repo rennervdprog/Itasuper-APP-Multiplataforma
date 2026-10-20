@@ -63,6 +63,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -120,7 +121,7 @@ import com.example.shared.theme.ItaSuperTextSecondary
 import com.example.shared.theme.ItaSuperWarning
 import com.example.shared.theme.ManropeFontFamily
 import com.example.shared.theme.SoraFontFamily
-import com.example.shared.ui.mock.mockUserSession
+import com.example.shared.session.UserSessionRepository
 import com.example.shared.ui.permissions.LocationAndPermissionsDialog
 import com.example.shared.ui.permissions.PlatformPermissions
 import kotlinx.datetime.Clock
@@ -252,6 +253,41 @@ private fun deliveryFeeSortValue(store: Store): Double {
 }
 
 /** Filtros + ordenação da lista (no original vivem no HomeViewModel). */
+/** Normalização forte de texto (porte de StoreRepository.normalizeForComparison do original). */
+private fun normalizeForComparison(value: String): String =
+    value.normalizedAccents()
+        .replace(Regex("[^a-z0-9]+"), " ")
+        .trim()
+        .replace(Regex("\\s+"), " ")
+
+/** Aliases de categoria (porte de StoreRepository do app original). */
+private val HOME_CATEGORY_ALIASES: Map<String, List<String>> = mapOf(
+    "lanches" to listOf("lanche", "lanches", "hamburguer", "hamburgueria", "burger", "sanduiche", "hot dog", "cachorro quente", "fast food", "batata"),
+    "pizzaria" to listOf("pizza", "pizzas", "pizzaria"),
+    "marmita" to listOf("marmita", "marmitas", "refeicao", "almoco", "comida caseira", "restaurante"),
+    "pastel" to listOf("pastel", "pasteis", "pastelaria", "feira"),
+    "acai" to listOf("acai", "sorvete", "sorveteria", "gelato", "sobremesa"),
+    "bebidas" to listOf("bebida", "bebidas", "conveniencia", "distribuidora", "bar", "adega"),
+    "mercado" to listOf("mercado", "mercados", "supermercado", "mercearia", "minimercado", "hortifruti", "padaria"),
+    "farmacias" to listOf("farmacia", "farmacias", "drogaria", "perfumaria"),
+    "churrasco" to listOf("churrasco", "espetinho", "espetos", "grill", "carnes", "churrascaria")
+)
+
+private fun matchesHomeCategory(selectedCategoryId: String, store: Store): Boolean {
+    val selectedKey = normalizeForComparison(selectedCategoryId)
+    if (selectedKey.isBlank()) return true
+    val storeCategory = normalizeForComparison(store.category)
+    if (storeCategory == selectedKey) return true
+    val aliases = HOME_CATEGORY_ALIASES[selectedKey].orEmpty().map { normalizeForComparison(it) }
+    return aliases.filter { it.isNotBlank() }.any { alias ->
+        storeCategory == alias ||
+            (storeCategory.isNotBlank() && (storeCategory.contains(alias) || alias.contains(storeCategory))) ||
+            normalizeForComparison(store.name).let { name ->
+                name.isNotBlank() && (name.contains(alias) || alias.contains(name))
+            }
+    }
+}
+
 private fun applyHomeStoreFilters(
     stores: List<Store>,
     selectedCategory: String,
@@ -262,36 +298,35 @@ private fun applyHomeStoreFilters(
     userLat: Double? = null,
     userLon: Double? = null
 ): List<Store> {
-    var result = stores
-    // Filtro por cidade (se especificada)
-    if (city.isNotBlank()) {
-        result = result.filter { 
-            it.addressCity.equals(city, ignoreCase = true) || it.addressCity.isBlank()
-        }
+    // Regra do app original: sem cidade definida, o catálogo regional é VAZIO
+    // (a tela pede o endereço em vez de mostrar lojas de outra região).
+    if (city.isBlank()) return emptyList()
+    var result = stores.filter {
+        normalizeForComparison(it.addressCity) == normalizeForComparison(city)
     }
     if (!selectedCategory.equals("todas", ignoreCase = true)) {
-        val wanted = selectedCategory.normalizedAccents()
-        result = result.filter { it.category.normalizedAccents().startsWith(wanted) }
+        result = result.filter { matchesHomeCategory(selectedCategory, it) }
     }
     if (freeFee) result = result.filter { it.isFreeDelivery }
     if (directDelivery) result = result.filter { it.deliveryMode.equals("own", ignoreCase = true) }
     return when (sort) {
+        // No original, RELEVANCE e DISTANCE têm o MESMO comparador.
         HomeStoreSort.RELEVANCE -> result.sortedByRelevance(userLat, userLon)
-        HomeStoreSort.DISTANCE -> result.sortedBy { it.distanceKm ?: Double.MAX_VALUE }
+        HomeStoreSort.DISTANCE -> result.sortedByRelevance(userLat, userLon)
         HomeStoreSort.DELIVERY_FEE -> result.sortedBy { deliveryFeeSortValue(it) }
         HomeStoreSort.NAME -> result.sortedBy { it.name.normalizedAccents() }
     }
 }
 
-private fun mockHomeCategories(): List<CategoryItem> = listOf(
+private fun homeCategories(): List<CategoryItem> = listOf(
     CategoryItem(id = "lanches", name = "Lanches", iconName = "fastfood"),
-    CategoryItem(id = "pizza", name = "Pizza", iconName = "local_pizza"),
+    CategoryItem(id = "pizzaria", name = "Pizzaria", iconName = "local_pizza"),
     CategoryItem(id = "marmita", name = "Marmita", iconName = "restaurant"),
     CategoryItem(id = "pastel", name = "Pastel", iconName = "bakery_dining"),
     CategoryItem(id = "acai", name = "Açaí", iconName = "icecream"),
     CategoryItem(id = "bebidas", name = "Bebidas", iconName = "local_bar"),
     CategoryItem(id = "mercado", name = "Mercado", iconName = "shopping_cart"),
-    CategoryItem(id = "farmacia", name = "Farmácia", iconName = "pharmacy"),
+    CategoryItem(id = "farmacias", name = "Farmácias", iconName = "pharmacy"),
     CategoryItem(id = "churrasco", name = "Churrasco", iconName = "churrasco")
 )
 
@@ -374,47 +409,53 @@ fun HomeScreen(
     // Banner promocional dispensável (padrão iFood): visível enquanto há cupons e não foi fechado.
     var promoBannerDismissed by remember { mutableStateOf(false) }
 
-    val session = remember { mockUserSession() }
-    var addressDraft by remember {
+    // Sessão real do cliente (UserSessionRepository) — mesma fonte do original.
+    val session by UserSessionRepository.session.collectAsState()
+    var addressDraft by remember(session.userId) {
         mutableStateOf(
             AddressDraft(
                 cep = session.addressCep,
                 street = session.addressStreet,
                 number = session.addressNumber,
+                complement = session.addressComplement,
                 neighborhood = session.addressNeighborhood,
                 city = session.addressCity,
-                state = session.addressState
+                state = session.addressState,
+                referencePoint = session.addressReferencePoint,
+                whatsapp = session.whatsapp
             )
         )
     }
-    // Endereço "atual" vindo do GPS (mock até a fase-rede ligar a
-    // geocodificação reversa de verdade).
-    var currentStreet by remember { mutableStateOf(session.activeLocationStreet) }
-    var currentNumber by remember { mutableStateOf(session.activeLocationNumber) }
-    var currentNeighborhood by remember { mutableStateOf(session.activeLocationNeighborhood) }
-    var currentCity by remember { mutableStateOf(session.activeLocationCity) }
 
     // ITEM 6/6: leitura do GPS (extraída para ser chamada tanto do
     // onAllowLocation — quando a permissão já existe — quanto do resultado do
     // LocationAndPermissionsDialog; espelha viewModel.fetchGpsLocation do original).
+    // As coordenadas vão para a sessão (localização ativa); a geocodificação
+    // reversa preenche rua/bairro/cidade na Fase C — NUNCA endereço inventado.
     fun fetchGpsLocation() {
         isRefreshingLocation = true
         addressScope.launch {
             val coords = LocationProvider.getCurrentLocation()
             if (coords != null) {
-                // TODO(fase-rede): geocodificação reversa real da coordenada
-                // (rua/número/bairro/cidade de verdade).
-                currentStreet = "Av. Getúlio Vargas"
-                currentNumber = "500"
-                currentNeighborhood = "Centro"
-                currentCity = "Araruama"
+                UserSessionRepository.updateActiveLocation(
+                    street = session.activeLocationStreet,
+                    number = session.activeLocationNumber,
+                    neighborhood = session.activeLocationNeighborhood,
+                    cep = session.activeLocationCep,
+                    city = session.activeLocationCity,
+                    state = session.activeLocationState,
+                    latitude = coords.first,
+                    longitude = coords.second
+                )
             }
             isRefreshingLocation = false
         }
     }
 
-    val activeCity = session.addressCity.ifBlank { "Araruama" }
-    val categories = remember { mockHomeCategories() } // filtros estáticos da UI (não são dados)
+    // Cidade efetiva: localização ativa (GPS) primeiro, senão a do cadastro.
+    // Sem nenhuma das duas, a lista regional fica vazia (requiresAddress).
+    val activeCity = session.activeLocationCity.ifBlank { session.addressCity }
+    val categories = remember { homeCategories() } // categorias fixas do catálogo (StoreRepository)
     // Seções promocionais com dados mock removidas (regra: nada de dado fake).
     // banners, cupons, ofertas e "peça de novo" só voltam com dados reais.
     val daypart = remember { currentHomeDaypart() }
@@ -424,9 +465,20 @@ fun HomeScreen(
     val affordableProducts = remember { emptyList<DiscoverProduct>() }
     val repeatProducts = remember { emptyList<DiscoverProduct>() }
 
-    val visibleStores = remember(stores, selectedCategory, isFreeFeeActive, isDirectDeliveryActive, storeSort, activeCity) {
-        applyHomeStoreFilters(stores, selectedCategory, isFreeFeeActive, isDirectDeliveryActive, storeSort, activeCity)
+    val visibleStores = remember(
+        stores, selectedCategory, isFreeFeeActive, isDirectDeliveryActive, storeSort, activeCity,
+        session.activeLocationLatitude, session.activeLocationLongitude
+    ) {
+        applyHomeStoreFilters(
+            stores, selectedCategory, isFreeFeeActive, isDirectDeliveryActive, storeSort, activeCity,
+            session.activeLocationLatitude, session.activeLocationLongitude
+        )
     }
+    val regionalStoreCount = remember(stores, activeCity) {
+        if (activeCity.isBlank()) 0
+        else stores.count { normalizeForComparison(it.addressCity) == normalizeForComparison(activeCity) }
+    }
+    val requiresAddress = activeCity.isBlank()
     val hasActiveFilters = selectedCategory != "todas" || isFreeFeeActive || isDirectDeliveryActive
 
     Column(
@@ -437,8 +489,8 @@ fun HomeScreen(
     ) {
         HomeHeaderSection(
             userName = session.name,
-            streetName = session.addressStreet,
-            streetNumber = session.addressNumber,
+            streetName = session.activeLocationStreet.ifBlank { session.addressStreet },
+            streetNumber = session.activeLocationNumber.ifBlank { session.addressNumber },
             cartItemCount = cartItemCount,
             onCouponClick = { /* TODO: tela de cupons */ },
             onCartClick = onCartClick,
@@ -516,11 +568,11 @@ fun HomeScreen(
 
         HomeStoreListSection(
             stores = visibleStores,
-            regionalStoreCount = stores.size,
+            regionalStoreCount = regionalStoreCount,
             hasActiveFilters = hasActiveFilters,
             isLoading = isLoadingStores,
             errorMessage = storesErrorMessage,
-            requiresAddress = false,
+            requiresAddress = requiresAddress,
             activeCity = activeCity,
             selectedCategory = selectedCategory,
             isFreeFeeActive = isFreeFeeActive,
@@ -555,14 +607,17 @@ fun HomeScreen(
         registeredNumber = session.addressNumber,
         registeredNeighborhood = session.addressNeighborhood,
         registeredCity = session.addressCity,
-        currentStreet = currentStreet,
-        currentNumber = currentNumber,
-        currentNeighborhood = currentNeighborhood,
-        currentCity = currentCity,
+        currentStreet = session.activeLocationStreet,
+        currentNumber = session.activeLocationNumber,
+        currentNeighborhood = session.activeLocationNeighborhood,
+        currentCity = session.activeLocationCity,
         isRefreshingLocation = isRefreshingLocation,
         onDismiss = { showAddressChoiceDialog = false },
-        // TODO(fase-rede): aplicar o endereço cadastrado como endereço ativo.
-        onUseRegisteredAddress = { showAddressChoiceDialog = false },
+        // Endereço cadastrado vira o ativo: limpa a localização temporária (GPS).
+        onUseRegisteredAddress = {
+            UserSessionRepository.clearActiveLocation()
+            showAddressChoiceDialog = false
+        },
         onAllowLocation = {
             showAddressChoiceDialog = false
             // ITEM 6/6: fluxo de permissão de localização (expect/actual por
@@ -602,29 +657,71 @@ fun HomeScreen(
             isLookingUpCep = true
             addressFormError = null
             addressScope.launch {
-                delay(900)
-                // TODO(fase-rede): consulta real ao ViaCEP via Ktor.
-                addressDraft = addressDraft.copy(
-                    street = addressDraft.street.ifBlank { "Rua das Palmeiras" },
-                    neighborhood = addressDraft.neighborhood.ifBlank { "Centro" },
-                    city = addressDraft.city.ifBlank { "Araruama" },
-                    state = addressDraft.state.ifBlank { "RJ" }
-                )
+                // Consulta real ao ViaCEP (igual ao app original).
+                val found = SupabaseApi.fetchAddressByCep(addressDraft.cep)
+                if (found != null) {
+                    addressDraft = addressDraft.copy(
+                        street = found.street.ifBlank { addressDraft.street },
+                        neighborhood = found.neighborhood.ifBlank { addressDraft.neighborhood },
+                        city = found.city.ifBlank { addressDraft.city },
+                        state = found.state.ifBlank { addressDraft.state }
+                    )
+                } else {
+                    addressFormError = "Não foi possível localizar esse CEP."
+                }
                 isLookingUpCep = false
             }
         },
         onSave = {
-            if (addressDraft.street.isBlank() || addressDraft.city.isBlank()) {
-                addressFormError = "Preencha a rua e a cidade para continuar."
-            } else {
-                isSavingAddress = true
-                addressFormError = null
-                addressScope.launch {
-                    delay(900)
-                    // TODO(fase-rede): persistir em saved_addresses (Supabase).
-                    isSavingAddress = false
-                    showAddressForm = false
-                    showAddressChoiceDialog = false
+            // Validações na mesma ordem e com os mesmos textos do app original.
+            val draft = addressDraft
+            when {
+                draft.cep.filter(Char::isDigit).length != 8 ->
+                    addressFormError = "Informe um CEP válido."
+                draft.street.isBlank() || draft.number.isBlank() || draft.neighborhood.isBlank() ->
+                    addressFormError = "Preencha rua, número e bairro."
+                draft.city.isBlank() || draft.state.isBlank() ->
+                    addressFormError = "Informe um CEP que identifique cidade e estado."
+                draft.whatsapp.filter(Char::isDigit).length < 10 ->
+                    addressFormError = "Informe um WhatsApp válido com DDD."
+                session.userId.isBlank() ->
+                    addressFormError = "Sua sessão expirou. Saia e entre novamente para atualizar o endereço."
+                else -> {
+                    isSavingAddress = true
+                    addressFormError = null
+                    addressScope.launch {
+                        val saved = SupabaseApi.updateUserProfileAddress(
+                            userId = session.userId,
+                            accessToken = session.accessToken,
+                            cep = draft.cep.filter(Char::isDigit),
+                            street = draft.street.trim(),
+                            number = draft.number.trim(),
+                            complement = draft.complement.trim(),
+                            neighborhood = draft.neighborhood.trim(),
+                            city = draft.city.trim(),
+                            state = draft.state.trim(),
+                            referencePoint = draft.referencePoint.trim(),
+                            whatsapp = draft.whatsapp.filter(Char::isDigit)
+                        )
+                        isSavingAddress = false
+                        if (saved) {
+                            UserSessionRepository.updateProfile(
+                                cep = draft.cep.filter(Char::isDigit),
+                                street = draft.street.trim(),
+                                number = draft.number.trim(),
+                                complement = draft.complement.trim(),
+                                neighborhood = draft.neighborhood.trim(),
+                                city = draft.city.trim(),
+                                state = draft.state.trim(),
+                                referencePoint = draft.referencePoint.trim(),
+                                whatsapp = draft.whatsapp.filter(Char::isDigit)
+                            )
+                            showAddressForm = false
+                            showAddressChoiceDialog = false
+                        } else {
+                            addressFormError = "Não foi possível salvar o endereço. Tente novamente."
+                        }
+                    }
                 }
             }
         }

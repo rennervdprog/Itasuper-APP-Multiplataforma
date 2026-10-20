@@ -40,20 +40,24 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import com.example.shared.generated.resources.Res
 import com.example.shared.generated.resources.ic_perfil_compartilhar_3d
 import com.example.shared.generated.resources.ic_perfil_dados_3d
@@ -72,27 +76,46 @@ import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
 import com.example.shared.model.LegalDocumentLinks
 import com.example.shared.model.normalizeBrazilianUf
+import com.example.shared.network.SupabaseApi
+import com.example.shared.session.UserSessionRepository
 import com.example.shared.theme.ItaSuperBorder
 import com.example.shared.theme.ItaSuperHighlightBg
 import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ItaSuperTextSecondary
 import com.example.shared.ui.home.SupportBottomSheet
-import com.example.shared.ui.mock.mockUserSession
 
 private const val SECTION_PERSONAL = "personal"
 private const val SECTION_ADDRESS = "address"
 
+/** Percent-encoding UTF-8 para montar links externos (wa.me etc.). */
+private fun urlEncode(value: String): String {
+    val unreserved = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~"
+    val hex = "0123456789ABCDEF"
+    val sb = StringBuilder()
+    for (byte in value.encodeToByteArray()) {
+        val b = byte.toInt() and 0xFF
+        val ch = b.toChar()
+        if (ch in unreserved) sb.append(ch)
+        else {
+            sb.append('%')
+            sb.append(hex[b shr 4])
+            sb.append(hex[b and 0x0F])
+        }
+    }
+    return sb.toString()
+}
+
 /**
  * Tela de perfil — layout fiel ao app Android (Itasuper-APP-NATIVO/ProfileScreen.kt).
  *
- * TODO(fase-rede): trocar o mockUserSession por UserSessionRepository + chamadas reais
- * (SupabaseClient) para salvar dados pessoais, endereço, PIN e excluir a conta.
- * TODO(plataforma): abrir WhatsApp, documentos legais e compartilhamento via
- * navegação externa da plataforma (expect/actual) — hoje mostram apenas feedback.
+ * Lê SOMENTE a sessão (UserSessionRepository), como o original; os salvamentos
+ * chamam a rede real (SupabaseApi) e só refletem na sessão após sucesso.
  */
 @Composable
-fun ProfileScreen(onLogout: () -> Unit = {}) {
-    var session by remember { mutableStateOf(mockUserSession()) }
+fun ProfileScreen(onLogout: () -> Unit = {}, onNavigateToOrders: () -> Unit = {}) {
+    val session by UserSessionRepository.session.collectAsState()
+    val scope = rememberCoroutineScope()
+    val uriHandler = LocalUriHandler.current
 
     var expandedSection by remember { mutableStateOf<String?>(null) }
     var personalDirty by remember { mutableStateOf(false) }
@@ -114,6 +137,7 @@ fun ProfileScreen(onLogout: () -> Unit = {}) {
     var showPinDialog by remember { mutableStateOf(false) }
     var showLogoutConfirmation by remember { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
+    var isSearchingCep by remember { mutableStateOf(false) }
     // ITEM 4/6: bottom sheet de suporte (migração 1:1 de SupportBottomSheet).
     var showSupportSheet by remember { mutableStateOf(false) }
     var feedback by remember { mutableStateOf<String?>(null) }
@@ -168,17 +192,18 @@ fun ProfileScreen(onLogout: () -> Unit = {}) {
         expandedSection = if (expandedSection == section) null else section
     }
 
-    // TODO(plataforma): abrir o WhatsApp externo com a mensagem pronta (expect/actual).
     fun openWhatsApp(message: String) {
-        feedback = "Disponível na versão final do app."
+        val url = "${LegalDocumentLinks.SUPPORT_WHATSAPP_URL}?text=${urlEncode(message)}"
+        runCatching { uriHandler.openUri(url) }
+            .onFailure { feedback = "Não foi possível abrir o WhatsApp." }
     }
 
-    // TODO(plataforma): abrir o documento legal no navegador externo (expect/actual).
     fun openLegalDocument(url: String) {
-        feedback = "Disponível na versão final do app."
+        runCatching { uriHandler.openUri(url) }
+            .onFailure { feedback = "Não foi possível abrir o documento." }
     }
 
-    // TODO(plataforma): abrir o compartilhamento nativo da plataforma (expect/actual).
+    // TODO(plataforma): compartilhamento nativo (folha de share) via expect/actual.
     fun shareApp() {
         feedback = "Disponível na versão final do app."
     }
@@ -187,11 +212,21 @@ fun ProfileScreen(onLogout: () -> Unit = {}) {
         when {
             fullName.trim().isBlank() -> feedback = "Informe seu nome completo."
             document.filter(Char::isDigit).length !in 11..14 -> feedback = "Informe um CPF ou CNPJ válido."
-            // TODO(fase-rede): SupabaseClient.updateCustomerPersonalProfile(session.userId, session.accessToken, ...)
             else -> {
-                session = session.copy(name = fullName.trim(), cpfCnpj = document.filter(Char::isDigit))
-                personalDirty = false
-                feedback = "Dados pessoais atualizados."
+                val nameToSave = fullName.trim()
+                val documentToSave = document.filter(Char::isDigit)
+                scope.launch {
+                    val saved = SupabaseApi.updateCustomerPersonalProfile(
+                        session.userId, session.accessToken, nameToSave, documentToSave
+                    )
+                    if (saved) {
+                        UserSessionRepository.updatePersonal(nameToSave, documentToSave)
+                        personalDirty = false
+                        feedback = "Dados pessoais atualizados."
+                    } else {
+                        feedback = "Não foi possível salvar seus dados. Tente novamente."
+                    }
+                }
             }
         }
     }
@@ -204,21 +239,39 @@ fun ProfileScreen(onLogout: () -> Unit = {}) {
             city.isBlank() -> feedback = "Informe a cidade."
             normalizedState.isBlank() -> feedback = "Informe uma UF válida com duas letras."
             whatsapp.filter(Char::isDigit).length < 10 -> feedback = "Informe um WhatsApp válido com DDD."
-            // TODO(fase-rede): SupabaseClient.updateUserProfileAddress(...) e repositório de sessão.
             else -> {
-                session = session.copy(
-                    addressCep = cep,
-                    addressStreet = street.trim(),
-                    addressNumber = number.trim(),
-                    addressComplement = complement.trim(),
-                    addressNeighborhood = neighborhood.trim(),
-                    addressCity = city.trim(),
-                    addressState = normalizedState,
-                    addressReferencePoint = referencePoint.trim(),
-                    whatsapp = whatsapp.filter(Char::isDigit)
-                )
-                addressDirty = false
-                feedback = "Endereço atualizado e disponível no checkout."
+                scope.launch {
+                    val saved = SupabaseApi.updateUserProfileAddress(
+                        userId = session.userId,
+                        accessToken = session.accessToken,
+                        cep = cep,
+                        street = street.trim(),
+                        number = number.trim(),
+                        complement = complement.trim(),
+                        neighborhood = neighborhood.trim(),
+                        city = city.trim(),
+                        state = normalizedState,
+                        referencePoint = referencePoint.trim(),
+                        whatsapp = whatsapp.filter(Char::isDigit)
+                    )
+                    if (saved) {
+                        UserSessionRepository.updateProfile(
+                            cep = cep,
+                            street = street.trim(),
+                            number = number.trim(),
+                            complement = complement.trim(),
+                            neighborhood = neighborhood.trim(),
+                            city = city.trim(),
+                            state = normalizedState,
+                            referencePoint = referencePoint.trim(),
+                            whatsapp = whatsapp.filter(Char::isDigit)
+                        )
+                        addressDirty = false
+                        feedback = "Endereço atualizado e disponível no checkout."
+                    } else {
+                        feedback = "Não foi possível salvar o endereço. Tente novamente."
+                    }
+                }
             }
         }
     }
@@ -227,21 +280,34 @@ fun ProfileScreen(onLogout: () -> Unit = {}) {
         when {
             !pin.matches(Regex("^\\d{4}$")) -> feedback = "Informe um PIN de 4 dígitos."
             pin != pinConfirmation -> feedback = "Os PINs não coincidem."
-            // TODO(fase-rede): SupabaseClient.updateCustomerDeliveryPin(session.userId, session.accessToken, pin).
             else -> {
-                session = session.copy(deliveryPin = pin)
-                pin = ""
-                pinConfirmation = ""
-                showPinDialog = false
-                feedback = "PIN de entrega atualizado."
+                val pinToSave = pin
+                scope.launch {
+                    val saved = SupabaseApi.updateCustomerDeliveryPin(session.userId, session.accessToken, pinToSave)
+                    if (saved) {
+                        UserSessionRepository.updatePin(pinToSave)
+                        pin = ""
+                        pinConfirmation = ""
+                        showPinDialog = false
+                        feedback = "PIN de entrega atualizado."
+                    } else {
+                        feedback = "Não foi possível atualizar o PIN. Tente novamente."
+                    }
+                }
             }
         }
     }
 
     fun deleteAccount() {
-        // TODO(fase-rede): SupabaseClient.deleteCustomerAccount(session.accessToken, deleteReason).
-        showDeleteConfirmation = false
-        onLogout()
+        scope.launch {
+            val error = SupabaseApi.deleteCustomerAccount(session.accessToken, deleteReason)
+            if (error == null) {
+                showDeleteConfirmation = false
+                onLogout()
+            } else {
+                feedback = error
+            }
+        }
     }
 
     if (showPinDialog) {
@@ -377,7 +443,7 @@ fun ProfileScreen(onLogout: () -> Unit = {}) {
 
                 SectionCaption("Acesso rápido")
                 QuickActionGrid(
-                    onOrders = { /* TODO(fase-rede): navegar para "pedidos" */ },
+                    onOrders = onNavigateToOrders,
                     // ITEM 4/6: ação rápida "Suporte" abre o SupportBottomSheet.
                     onSupport = { showSupportSheet = true }
                 )
@@ -435,10 +501,23 @@ fun ProfileScreen(onLogout: () -> Unit = {}) {
                             )
                             Spacer(Modifier.width(8.dp))
                             Button(
-                                enabled = cep.length == 8,
+                                enabled = cep.length == 8 && !isSearchingCep,
                                 onClick = {
-                                    // TODO(fase-rede): SupabaseClient.fetchAddressByCep(cep) e preenchimento automático.
-                                    feedback = "Busca automática de CEP estará disponível em breve."
+                                    isSearchingCep = true
+                                    scope.launch {
+                                        val found = SupabaseApi.fetchAddressByCep(cep)
+                                        isSearchingCep = false
+                                        if (found != null) {
+                                            addressDirty = true
+                                            street = found.street
+                                            neighborhood = found.neighborhood
+                                            city = found.city
+                                            state = normalizeBrazilianUf(found.state)
+                                            feedback = "Endereço encontrado pelo CEP. Confira os dados."
+                                        } else {
+                                            feedback = "CEP não encontrado. Confira o número e tente novamente."
+                                        }
+                                    }
                                 },
                                 modifier = Modifier.height(56.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = ItaSuperPrimary)

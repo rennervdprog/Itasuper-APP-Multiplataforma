@@ -41,7 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import com.example.shared.network.SupabaseApi
-import com.example.shared.platform.SecureStorage
+import com.example.shared.session.UserSessionRepository
 import kotlinx.datetime.Clock
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
@@ -99,7 +99,7 @@ import com.example.shared.util.Masks
  * app Android (fase 3d). Layout 1:1 com o original ("estilo entregador":
  * fundo branco, logo + badge "PARA CLIENTES" + título grande); o estado que
  * era do AuthViewModel virou [AuthState] (remember/mutableStateOf) e a rede
- * (Supabase) está mockada — ver TODO(fase-rede).
+ * é real: login/cadastro via Supabase, sessão no [UserSessionRepository].
  *
  * Diferenças intencionais vs. o original Android:
  * - Ícones e logo: mesmos drawables do original via composeResources
@@ -132,8 +132,8 @@ data class AuthUiState(
     val isPrivacyAccepted: Boolean = false,
     val isLoadingLegalDocuments: Boolean = false,
 
-    // TODO(fase-rede): hoje é mock fixo; buscar do backend (fetchPendingLegalChanges).
-    val pendingLegalChanges: PendingLegalChanges? = mockPendingLegalChanges(),
+    // Carregado do backend ao entrar no modo cadastro (fetchPendingLegalChanges).
+    val pendingLegalChanges: PendingLegalChanges? = null,
 
     // Error messages per field or general
     val errorMessage: String? = null,
@@ -146,17 +146,6 @@ data class AuthUiState(
     val isSendingRecovery: Boolean = false
 )
 
-// TODO(fase-rede): trocar pelo retorno real do backend. Versões alinhadas ao
-// que está publicado hoje no site (Termos v6.7).
-private fun mockPendingLegalChanges(): PendingLegalChanges = PendingLegalChanges(
-    needsTerms = true,
-    needsPrivacy = true,
-    currentTermsVersion = "6.7",
-    currentPrivacyVersion = "6.7",
-    termsChanges = emptyList(),
-    privacyChanges = emptyList()
-)
-
 // android.util.Patterns não existe no commonMain — validação manual.
 // Regex.matches() exige match da string inteira, então não precisa de âncora $.
 private val EMAIL_REGEX = Regex("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")
@@ -164,11 +153,10 @@ private fun isValidEmail(email: String): Boolean = EMAIL_REGEX.matches(email.tri
 
 /**
  * Equivalente KMP do AuthViewModel: estado observável via mutableStateOf e
- * os mesmos handlers/validações do original. Ações de rede estão mockadas
- * (sucesso imediato após validação) — a integração real com o Supabase vem
- * na fase-rede.
+ * os mesmos handlers/validações do original, com rede real via SupabaseApi e
+ * sessão persistida pelo UserSessionRepository.
  */
-/** Chaves do SecureStorage para a sessão do usuário. */
+/** Chaves do SecureStorage para a sessão do usuário (mesmos valores do UserSessionRepository). */
 const val KEY_USER_ID = "session_user_id"
 const val KEY_ACCESS_TOKEN = "session_access_token"
 const val KEY_REFRESH_TOKEN = "session_refresh_token"
@@ -179,20 +167,34 @@ private class AuthState {
         private set
 
     private val scope = MainScope()
-    private val secureStorage = SecureStorage()
 
     /**
-     * Salva a sessão do usuário no armazenamento seguro.
-     * Usado pelo checkout (submitOrder) e para manter o login.
+     * Carrega os documentos legais vigentes para o cadastro (mesmo backend
+     * legal do app original/web). Para usuário novo, o backend precisa
+     * retornar aceite requerido — sem isso o cadastro não anda.
      */
-    private fun saveSession(userId: String?, accessToken: String?, refreshToken: String?, email: String) {
-        try {
-            if (!userId.isNullOrBlank()) secureStorage.save(KEY_USER_ID, userId)
-            if (!accessToken.isNullOrBlank()) secureStorage.save(KEY_ACCESS_TOKEN, accessToken)
-            if (!refreshToken.isNullOrBlank()) secureStorage.save(KEY_REFRESH_TOKEN, refreshToken)
-            if (email.isNotBlank()) secureStorage.save(KEY_USER_EMAIL, email)
-        } catch (_: Throwable) {
-            // Falha ao salvar não bloqueia o login
+    fun loadRegistrationLegalDocuments() {
+        if (uiState.isLoadingLegalDocuments || uiState.pendingLegalChanges != null) return
+        uiState = uiState.copy(isLoadingLegalDocuments = true)
+        scope.launch {
+            val pending = try {
+                SupabaseApi.fetchPendingLegalChanges(null, null)
+            } catch (_: Throwable) {
+                null
+            }
+            if (pending == null || !pending.requiresAcceptance) {
+                uiState = uiState.copy(
+                    isLoadingLegalDocuments = false,
+                    errorMessage = "Não foi possível carregar os Termos e a Política de Privacidade. Verifique sua conexão."
+                )
+            } else {
+                uiState = uiState.copy(
+                    isLoadingLegalDocuments = false,
+                    pendingLegalChanges = pending,
+                    isTermsAccepted = false,
+                    isPrivacyAccepted = false
+                )
+            }
         }
     }
 
@@ -276,13 +278,28 @@ private class AuthState {
             uiState = uiState.copy(errorMessage = "Informe um e-mail válido para recuperação")
             return
         }
-        // TODO(fase-rede): SupabaseClient.requestPasswordRecovery(email).
-        uiState = uiState.copy(
-            isSendingRecovery = false,
-            showForgotPasswordDialog = false,
-            successMessage = "E-mail de recuperação enviado. Verifique sua caixa de entrada.",
-            errorMessage = null
-        )
+        if (uiState.isSendingRecovery) return
+        uiState = uiState.copy(isSendingRecovery = true, errorMessage = null)
+        scope.launch {
+            val result = try {
+                SupabaseApi.requestPasswordRecovery(email)
+            } catch (_: Throwable) {
+                null
+            }
+            if (result != null && result.isSuccess) {
+                uiState = uiState.copy(
+                    isSendingRecovery = false,
+                    showForgotPasswordDialog = false,
+                    successMessage = "E-mail de recuperação enviado. Verifique sua caixa de entrada.",
+                    errorMessage = null
+                )
+            } else {
+                uiState = uiState.copy(
+                    isSendingRecovery = false,
+                    errorMessage = result?.errorMessage ?: "Não foi possível enviar o e-mail de recuperação."
+                )
+            }
+        }
     }
 
     fun clearMessages() {
@@ -309,9 +326,15 @@ private class AuthState {
             try {
                 val result = SupabaseApi.signIn(email, state.loginPassword)
                 if (result.isSuccess) {
-                    // Salva a sessão para uso posterior (checkout, etc.)
-                    saveSession(result.userId, result.accessToken, result.refreshToken, email)
-                    uiState = uiState.copy(isLoading = false, errorMessage = null)
+                    // Sessão real no repositório (persiste + sincroniza o perfil).
+                    UserSessionRepository.login(
+                        email = email,
+                        userId = result.userId ?: "",
+                        accessToken = result.accessToken ?: "",
+                        refreshToken = result.refreshToken ?: "",
+                        expiresAtSeconds = result.expiresAt
+                    )
+                    uiState = uiState.copy(isLoading = false, errorMessage = null, successMessage = "Login realizado!")
                     onSuccess()
                 } else {
                     uiState = uiState.copy(
@@ -378,18 +401,66 @@ private class AuthState {
         scope.launch {
             try {
                 val result = SupabaseApi.signUp(email, state.regPassword)
-                if (result.isSuccess) {
-                    // Salva a sessão para uso posterior
-                    saveSession(result.userId, result.accessToken, result.refreshToken, email)
-                    // TODO: insertProfile (nome, CPF, WhatsApp, PIN) + recordLegalAcceptance
-                    uiState = uiState.copy(isLoading = false, errorMessage = null)
-                    onSuccess()
-                } else {
+                if (!result.isSuccess) {
                     uiState = uiState.copy(
                         isLoading = false,
                         errorMessage = result.errorMessage ?: "Não foi possível criar a conta. Tente novamente."
                     )
+                    return@launch
                 }
+                val userId = result.userId.orEmpty()
+                val accessToken = result.accessToken.orEmpty()
+                if (userId.isBlank() || accessToken.isBlank()) {
+                    uiState = uiState.copy(
+                        isLoading = false,
+                        errorMessage = "Sua conta foi criada, mas não foi possível concluir o cadastro. Entre novamente para finalizar."
+                    )
+                    return@launch
+                }
+                // Sequência do app original: perfil -> aceite legal -> sessão.
+                val profileCreated = SupabaseApi.insertProfile(
+                    userId = userId,
+                    fullName = name,
+                    document = state.regCpfCnpj,
+                    whatsappNumber = state.regWhatsapp,
+                    email = email,
+                    deliveryPin = state.regPin,
+                    accessToken = accessToken
+                )
+                if (!profileCreated) {
+                    uiState = uiState.copy(
+                        isLoading = false,
+                        errorMessage = "Sua conta foi criada, mas não foi possível concluir o cadastro. Entre novamente para finalizar."
+                    )
+                    return@launch
+                }
+                val acceptanceResult = SupabaseApi.recordLegalAcceptance(
+                    userId = userId,
+                    accessToken = accessToken,
+                    termsVersion = legalDocuments.currentTermsVersion,
+                    privacyVersion = legalDocuments.currentPrivacyVersion
+                )
+                if (!acceptanceResult.isSuccess) {
+                    uiState = uiState.copy(
+                        isLoading = false,
+                        errorMessage = acceptanceResult.errorMessage
+                            ?: "Sua conta foi criada, mas o aceite não pôde ser registrado. Entre novamente para finalizar."
+                    )
+                    return@launch
+                }
+                UserSessionRepository.register(
+                    name = name,
+                    email = email,
+                    cpfCnpj = state.regCpfCnpj,
+                    whatsapp = state.regWhatsapp,
+                    pin = state.regPin,
+                    userId = userId,
+                    accessToken = accessToken,
+                    refreshToken = result.refreshToken ?: "",
+                    expiresAtSeconds = result.expiresAt
+                )
+                uiState = uiState.copy(isLoading = false, errorMessage = null, successMessage = "Conta criada!")
+                onSuccess()
             } catch (_: Throwable) {
                 uiState = uiState.copy(
                     isLoading = false,
@@ -405,6 +476,13 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
     val authState = remember { AuthState() }
     val uiState = authState.uiState
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // Ao entrar no modo cadastro, carrega os documentos legais vigentes do
+    // backend (igual ao loadRegistrationLegalDocuments do app original).
+    val isRegisterMode = uiState.authMode is AuthMode.Register
+    LaunchedEffect(isRegisterMode) {
+        if (isRegisterMode) authState.loadRegistrationLegalDocuments()
+    }
     val scrollState = rememberScrollState()
     val focusManager = LocalFocusManager.current
     val uriHandler = LocalUriHandler.current
