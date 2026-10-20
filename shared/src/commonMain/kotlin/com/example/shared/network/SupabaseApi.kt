@@ -16,7 +16,6 @@ import com.example.shared.model.PizzaSizeCatalogItem
 import com.example.shared.model.Product
 import com.example.shared.model.PizzaLegacySize
 import com.example.shared.model.AddonGroup
-import com.example.shared.model.AddonItem
 import com.example.shared.model.MenuSection
 import com.example.shared.model.ProductAddonsPayload
 import com.example.shared.model.SavedAddress

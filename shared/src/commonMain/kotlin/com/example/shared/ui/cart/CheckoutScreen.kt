@@ -55,9 +55,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,24 +70,31 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.shared.model.DeliveryAddressInput
+import com.example.shared.model.LoyaltyConfig
 import com.example.shared.model.SavedAddress
 import com.example.shared.model.Store
+import com.example.shared.model.normalizeBrazilianUf
 import com.example.shared.model.preorderReleaseAtMillis
 import com.example.shared.network.SupabaseApi
-import com.example.shared.platform.SecureStorage
+import com.example.shared.session.UserSessionRepository
+import kotlinx.coroutines.launch
 import com.example.shared.theme.ItaSuperBorder
 import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ItaSuperSuccess
 import kotlinx.datetime.Clock
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.plus
+import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 
-// TODO(fase-rede): endereço (edição/busca CEP real, confirmação via GPS), cotação
-// de entrega real, pagamento real (Woovi), fidelidade/carteira reais, agendamento
-// real e envio do pedido precisam do SupabaseClient via Ktor.
+// Checkout REAL (Fase E do mapa do app original): endereços salvos da API
+// (+ endereço do perfil mesclado), ViaCEP de verdade, cotação oficial via
+// quote-delivery sincronizada pelo carrinho, política de localização GPS,
+// carteira/fidelidade reais e envio do pedido com snapshot da cotação.
 // Layout espelha 1:1 o CheckoutScreen do app Android (Itasuper-APP-NATIVO):
 // mesma estrutura, textos, dps e sps.
 // Diferenças documentadas vs. Android:
@@ -123,56 +132,155 @@ fun CheckoutScreen(
             }
         }
     }
+    val session by UserSessionRepository.session.collectAsState()
+    val scope = rememberCoroutineScope()
     val isPickup = cart.deliveryType == DeliveryType.PICKUP
-    // No Android: deliveryQuoteReady = RETIRADA || (!isQuotingDelivery && hasOfficialDeliveryQuote).
-    // A cotação oficial do backend (quote-delivery) entra na Fase E; por
-    // enquanto vale a taxa da loja já carregada no carrinho.
-    val isQuotingDelivery = false
-    val deliveryQuoteReady = isPickup || (!isQuotingDelivery && cart.deliveryFee > 0.0)
+    // Igual ao original: deliveryQuoteReady = RETIRADA ||
+    // (!isQuotingDelivery && hasOfficialDeliveryQuote) — a cotação oficial
+    // (quote-delivery) é sincronizada pelo carrinho.
+    val deliveryQuoteReady = isPickup ||
+        (!cart.isQuotingDelivery && cart.hasOfficialDeliveryQuote)
 
-    // Benefícios (fidelidade + carteira): estrutura fiel ao Android; no mock não há
-    // dados, então a seção fica oculta como no original (fase-rede: preencher via Ktor).
-    val loyaltyPointsAvailable = 0
-    val loyaltyMinPointsRedeem = 0
-    val loyaltyDiscountPerPoint = 0.0
-    val loyaltyMaxPointsUsable = 0
+    // Benefícios REAIS (carteira + fidelidade) — porte do
+    // loadCheckoutBenefits/recalculateBenefits do app original: carrega por
+    // loja quando o carrinho muda de loja; fórmulas idênticas.
+    var walletBalance by remember { mutableStateOf(0.0) }
+    var loyaltyConfig by remember { mutableStateOf<LoyaltyConfig?>(null) }
+    var loyaltyPointsAvailable by remember { mutableStateOf(0) }
+    var benefitsStoreId by remember { mutableStateOf<String?>(null) }
     var loyaltyPointsToUse by remember { mutableStateOf(0) }
-    val walletBalance = 0.0
     var useWallet by remember { mutableStateOf(false) }
-    val showBenefits = loyaltyMinPointsRedeem > 0 || walletBalance > 0
-    val loyaltyDiscount = loyaltyPointsToUse * loyaltyDiscountPerPoint
-    val walletDiscount = if (useWallet) minOf(walletBalance, (cart.total - loyaltyDiscount).coerceAtLeast(0.0)) else 0.0
-    val checkoutTotal = (cart.total - loyaltyDiscount - walletDiscount).coerceAtLeast(0.0)
 
-    // Endereços salvos do usuário (tabela saved_addresses via Supabase).
-    var savedAddresses by remember { mutableStateOf<List<SavedAddress>>(emptyList()) }
-    val selectedAddress = savedAddresses.firstOrNull { it.id == cart.selectedAddressId }
-    
-    // Carrega endereços reais do backend (com o JWT da sessão, como no original)
-    LaunchedEffect(Unit) {
-        try {
-            val secureStorage = SecureStorage()
-            val userId = secureStorage.get("session_user_id") ?: ""
-            val accessToken = secureStorage.get("session_access_token") ?: ""
-            if (userId.isNotBlank() && accessToken.isNotBlank()) {
-                val addresses = SupabaseApi.fetchSavedAddresses(userId, accessToken)
-                savedAddresses = addresses
-                // Espelha no carrinho: o resumo do pedido usa os endereços reais.
-                cart.savedAddresses = addresses
+    LaunchedEffect(cart.storeId, session.userId) {
+        val sid = cart.storeId
+        if (sid.isNullOrBlank() || session.userId.isBlank() || session.accessToken.isBlank()) {
+            benefitsStoreId = sid
+            walletBalance = 0.0
+            loyaltyConfig = null
+            loyaltyPointsAvailable = 0
+            return@LaunchedEffect
+        }
+        if (benefitsStoreId == sid) return@LaunchedEffect
+        val sameStore = benefitsStoreId == sid
+        benefitsStoreId = sid
+        if (!sameStore) {
+            useWallet = false
+            loyaltyPointsToUse = 0
+        }
+        val wallet = try {
+            SupabaseApi.fetchWalletBalance(session.userId, session.accessToken)
+        } catch (_: Throwable) {
+            null
+        }
+        walletBalance = (wallet?.balance ?: 0.0).coerceAtLeast(0.0)
+        val config = try {
+            SupabaseApi.fetchLoyaltyConfig(sid, session.accessToken)
+        } catch (_: Throwable) {
+            null
+        }
+        loyaltyConfig = config
+        loyaltyPointsAvailable = if (config != null) {
+            try {
+                SupabaseApi.fetchLoyaltyBalance(session.userId, sid, session.accessToken).points
+            } catch (_: Throwable) {
+                0
             }
-        } catch (_: Exception) {
-            // Mantém lista vazia em caso de erro (sem mocks)
+        } else {
+            0
         }
     }
-    
+
+    val loyaltyConfigActive = loyaltyConfig?.takeIf { it.isEnabled && benefitsStoreId == cart.storeId }
+    val loyaltyMinPointsRedeem = loyaltyConfigActive?.minPointsRedeem ?: 0
+    val loyaltyDiscountPerPoint = loyaltyConfigActive?.discountPerPoint ?: 0.0
+    val loyaltyMaxPointsUsable = if (loyaltyConfigActive == null || loyaltyDiscountPerPoint <= 0.0) {
+        0
+    } else {
+        val maxByPercent = cart.subtotal * (loyaltyConfigActive.maxDiscountPercent / 100.0)
+        val maxByBalance = loyaltyPointsAvailable * loyaltyDiscountPerPoint
+        kotlin.math.floor(
+            minOf(maxByPercent, maxByBalance, cart.subtotal) / loyaltyDiscountPerPoint
+        ).toInt().coerceAtLeast(0)
+    }
+    // Pontos efetivos: limitados ao máximo e zerados abaixo do mínimo.
+    val loyaltyPointsEffective = loyaltyPointsToUse.coerceAtMost(loyaltyMaxPointsUsable).takeIf {
+        loyaltyConfigActive != null && it >= loyaltyConfigActive.minPointsRedeem
+    } ?: 0
+    val loyaltyDiscount = loyaltyPointsEffective * loyaltyDiscountPerPoint
+    val walletDiscount = if (useWallet) minOf(walletBalance, (cart.total - loyaltyDiscount).coerceAtLeast(0.0)) else 0.0
+    val checkoutTotal = (cart.total - loyaltyDiscount - walletDiscount).coerceAtLeast(0.0)
+    val showBenefits = loyaltyMinPointsRedeem > 0 || walletBalance > 0
+
+    // Endereços salvos do usuário (tabela saved_addresses via Supabase),
+    // com o endereço do perfil mesclado no topo — porte do
+    // mergeProfileAddress/loadSavedAddresses do app original.
+    var savedAddresses by remember { mutableStateOf<List<SavedAddress>>(emptyList()) }
+    val selectedAddress = savedAddresses.firstOrNull { it.id == cart.selectedAddressId }
+    var addressEditedByCustomer by remember { mutableStateOf(false) }
+    var usingGpsAddress by remember { mutableStateOf(false) }
+
+    fun profileSavedAddress(): SavedAddress? {
+        val s = session
+        val hasAnyAddressData = listOf(
+            s.addressStreet, s.addressNumber, s.addressNeighborhood, s.addressCity, s.addressCep
+        ).any { it.isNotBlank() }
+        if (!hasAnyAddressData) return null
+        return SavedAddress(
+            id = "__profile_address__",
+            label = "Endereço do perfil",
+            street = s.addressStreet,
+            number = s.addressNumber,
+            complement = s.addressComplement,
+            neighborhood = s.addressNeighborhood,
+            city = s.addressCity,
+            state = normalizeBrazilianUf(s.addressState),
+            referencePoint = s.addressReferencePoint,
+            cep = s.addressCep.filter(Char::isDigit).take(8),
+            isDefault = true
+        )
+    }
+
+    fun mergeProfileAddress(remoteAddresses: List<SavedAddress>): List<SavedAddress> {
+        val profile = profileSavedAddress() ?: return remoteAddresses
+        fun normalized(value: String) = value.trim().lowercase().replace(Regex("\\s+"), " ")
+        val withoutDuplicate = remoteAddresses.filterNot { address ->
+            normalized(address.street) == normalized(profile.street) &&
+                normalized(address.number) == normalized(profile.number) &&
+                address.cep.filter(Char::isDigit) == profile.cep
+        }
+        return listOf(profile) + withoutDuplicate
+    }
+
+    fun reloadAddresses() {
+        val s = session
+        if (s.userId.isBlank() || s.accessToken.isBlank()) return
+        scope.launch {
+            try {
+                val remote = SupabaseApi.fetchSavedAddresses(s.userId, s.accessToken)
+                val merged = mergeProfileAddress(remote)
+                savedAddresses = merged
+                cart.savedAddresses = merged
+            } catch (_: Exception) {
+                // Mantém a lista atual em caso de erro (sem mocks)
+            }
+        }
+    }
+
+    // Carrega endereços reais do backend (com o JWT da sessão, como no original)
+    LaunchedEffect(session.userId) {
+        if (session.userId.isNotBlank()) reloadAddresses()
+    }
+
     LaunchedEffect(savedAddresses) {
+        if (usingGpsAddress || addressEditedByCustomer) return@LaunchedEffect
         if (cart.selectedAddressId == null || savedAddresses.none { it.id == cart.selectedAddressId }) {
             val def = savedAddresses.firstOrNull { it.isDefault } ?: savedAddresses.firstOrNull()
             if (def != null) cart.selectAddress(def.id)
         }
     }
 
-    // Editor de endereço.
+    // Editor de endereço (campos = endereço atual do checkout, como no
+    // original: a seleção de um endereço salvo preenche os campos).
     var showAddressEditor by remember { mutableStateOf(false) }
     var cep by remember { mutableStateOf("") }
     var cepError by remember { mutableStateOf<String?>(null) }
@@ -182,61 +290,211 @@ fun CheckoutScreen(
     var city by remember { mutableStateOf("") }
     var state by remember { mutableStateOf("") }
     var complement by remember { mutableStateOf("") }
-    // GPS real não disponível no mock (fase-rede): mantém a estrutura do Android.
-    val usingGpsAddress = false
     var showGpsAddressConfirmation by remember { mutableStateOf(false) }
+    var addressFormError by remember { mutableStateOf<String?>(null) }
+
+    fun applyAddressFields(address: SavedAddress?) {
+        cep = address?.cep ?: session.addressCep
+        street = address?.street ?: session.addressStreet
+        number = address?.number ?: session.addressNumber
+        neighborhood = address?.neighborhood ?: session.addressNeighborhood
+        city = address?.city?.ifBlank { session.addressCity } ?: session.addressCity
+        state = normalizeBrazilianUf(address?.state?.ifBlank { session.addressState } ?: session.addressState)
+        complement = listOfNotNull(address?.complement, address?.referencePoint)
+            .filter { it.isNotBlank() }
+            .joinToString(" · ")
+            .ifBlank { session.addressComplement }
+        if (address != null) {
+            cart.setDeliveryCoordinates(address.latitude, address.longitude)
+        }
+    }
+
+    // Seleção aplicada → campos + possível divergência de GPS (política de
+    // localização: GPS fresco a >300m ou cidade/rua diferentes pergunta).
+    LaunchedEffect(selectedAddress?.id, session.activeLocationUpdatedAt) {
+        if (addressEditedByCustomer || usingGpsAddress) return@LaunchedEffect
+        applyAddressFields(selectedAddress)
+        if (!isPickup && selectedAddress != null) {
+            showGpsAddressConfirmation = activeLocationDiffersFromAddress(session, selectedAddress)
+        }
+    }
+
+    fun currentAddressInput(): DeliveryAddressInput = DeliveryAddressInput(
+        street = street,
+        number = number,
+        complement = complement,
+        neighborhood = neighborhood,
+        city = city,
+        state = state,
+        cep = cep
+    )
+
+    // Sincroniza a cotação oficial sempre que o endereço/subtotal/loja muda.
+    LaunchedEffect(
+        cart.storeId, cart.subtotal, cart.deliveryType,
+        street, number, neighborhood, city, state, cep
+    ) {
+        cart.synchronizeDeliveryQuote(currentAddressInput())
+    }
+
+    // Falha de cotação reabre o editor (igual ao original: o endereço
+    // digitado precisa ser corrigível).
+    LaunchedEffect(cart.deliveryQuoteFailure) {
+        if (cart.deliveryQuoteFailure != null && !isPickup) {
+            showAddressEditor = true
+        }
+    }
 
     fun openAddressEditor() {
-        val addr = selectedAddress
-        cep = addr?.cep ?: ""
-        street = addr?.street ?: ""
-        number = addr?.number ?: ""
-        neighborhood = addr?.neighborhood ?: ""
-        city = addr?.city ?: ""
-        state = addr?.state ?: ""
-        complement = addr?.complement ?: ""
         cepError = null
         showAddressEditor = true
     }
 
+    /** Salva o endereço atual na API (createSavedAddress do original). */
     fun saveCurrentAddress() {
-        val currentId = selectedAddress?.id
-        val id = currentId ?: "local_${Clock.System.now().toEpochMilliseconds()}"
-        val updated = SavedAddress(
-            id = id,
-            label = selectedAddress?.label ?: "Novo endereço",
-            street = street,
-            number = number,
-            complement = complement,
-            neighborhood = neighborhood,
-            city = city,
-            state = state,
-            cep = cep,
-            pinConfirmed = usingGpsAddress,
-            isDefault = selectedAddress?.isDefault ?: savedAddresses.isEmpty()
-        )
-        savedAddresses = if (savedAddresses.any { it.id == id }) {
-            savedAddresses.map { if (it.id == id) updated else it }
-        } else {
-            savedAddresses + updated
+        val s = session
+        if (s.userId.isBlank() || s.accessToken.isBlank()) return
+        if (street.isBlank() || number.isBlank() || neighborhood.isBlank() ||
+            city.isBlank() || normalizeBrazilianUf(state).isBlank() ||
+            cep.filter(Char::isDigit).length != 8
+        ) {
+            addressFormError = "Complete rua, número, bairro, cidade, UF e CEP válido antes de salvar o endereço."
+            return
         }
-        cart.savedAddresses = savedAddresses
-        cart.selectAddress(id)
-        showAddressEditor = false
+        val useGpsCoordinates = usingGpsAddress
+        scope.launch {
+            val saved = try {
+                SupabaseApi.createSavedAddress(
+                    userId = s.userId,
+                    accessToken = s.accessToken,
+                    address = SavedAddress(
+                        label = "Novo endereço",
+                        street = street.trim(),
+                        number = number.trim(),
+                        complement = complement.trim(),
+                        neighborhood = neighborhood.trim(),
+                        city = city.trim(),
+                        state = normalizeBrazilianUf(state),
+                        cep = cep.filter(Char::isDigit),
+                        latitude = if (useGpsCoordinates) s.activeLocationLatitude else null,
+                        longitude = if (useGpsCoordinates) s.activeLocationLongitude else null,
+                        pinConfirmed = useGpsCoordinates &&
+                            s.activeLocationLatitude != null && s.activeLocationLongitude != null,
+                        isDefault = savedAddresses.isEmpty()
+                    )
+                )
+            } catch (_: Throwable) {
+                null
+            }
+            if (saved == null) {
+                addressFormError = "Não foi possível salvar este endereço."
+            } else {
+                addressFormError = null
+                addressEditedByCustomer = false
+                showAddressEditor = false
+                reloadAddresses()
+            }
+        }
     }
 
+    /** Busca o CEP no ViaCEP real (porte do searchAddressByCep do original). */
     fun searchAddressByCep() {
-        // Mock da busca de CEP (fase-rede: ViaCEP de verdade).
-        val digits = cep.filter { it.isDigit() }
-        if (digits == "28970000") {
-            street = "Rua das Palmeiras"
-            neighborhood = "Centro"
-            city = "Araruama"
-            state = "RJ"
-            cepError = null
-        } else {
-            cepError = "Não encontramos endereços para este CEP."
+        addressEditedByCustomer = true
+        val cepInput = cep.trim()
+        if (cepInput.isBlank()) {
+            cepError = "Informe o CEP."
+            return
         }
+        cepError = null
+        scope.launch {
+            val result = try {
+                SupabaseApi.fetchAddressByCep(cepInput)
+            } catch (_: Throwable) {
+                null
+            }
+            if (result != null) {
+                cep = result.cep.filter(Char::isDigit).take(8)
+                    .ifBlank { cepInput.filter(Char::isDigit).take(8) }
+                if (result.street.isNotBlank()) street = result.street
+                if (result.neighborhood.isNotBlank()) neighborhood = result.neighborhood
+                if (result.city.isNotBlank()) city = result.city
+                if (result.state.isNotBlank()) state = result.state.uppercase()
+                cepError = null
+                cart.invalidateDeliveryQuote(currentAddressInput())
+            } else {
+                cepError = "CEP não encontrado. Preencha o endereço manualmente."
+            }
+        }
+    }
+
+    /** "Usar localização atual": preenche o editor SÓ com dados do GPS. */
+    fun useGpsAddressForCheckout() {
+        val s = session
+        if (!isActiveLocationFresh(s)) {
+            showGpsAddressConfirmation = false
+            addressFormError = "Atualize sua localização atual antes de usá-la no checkout."
+            return
+        }
+        val gpsCep = s.activeLocationCep.filter(Char::isDigit).take(8)
+        addressEditedByCustomer = true
+        cart.setDeliveryCoordinates(s.activeLocationLatitude, s.activeLocationLongitude)
+        cep = gpsCep
+        street = s.activeLocationStreet
+        number = s.activeLocationNumber
+        neighborhood = s.activeLocationNeighborhood
+        city = s.activeLocationCity
+        state = normalizeBrazilianUf(s.activeLocationState)
+        complement = ""
+        showAddressEditor = true
+        showGpsAddressConfirmation = false
+        usingGpsAddress = true
+        cepError = null
+        addressFormError = if (gpsCep.length == 8) {
+            null
+        } else {
+            "Não identificamos o CEP da localização atual. Preencha o CEP para calcular a entrega."
+        }
+        cart.invalidateDeliveryQuote(currentAddressInput())
+    }
+
+    /** "Usar endereço salvo": reaplica a seleção e invalida a cotação. */
+    fun useSavedAddressForCheckout() {
+        addressEditedByCustomer = false
+        usingGpsAddress = false
+        applyAddressFields(selectedAddress)
+        showGpsAddressConfirmation = false
+        cart.invalidateDeliveryQuote(currentAddressInput())
+    }
+
+    /**
+     * "Confirmar localização e usar neste pedido" — porte do
+     * confirmGpsAddressForCheckout: valida o endereço do GPS e a cotação
+     * antes de fechar o editor (sem salvar o endereço).
+     */
+    fun confirmGpsAddress() {
+        if (!usingGpsAddress) return
+        val address = currentAddressInput()
+        if (!address.isComplete()) {
+            addressFormError = if (number.isBlank()) {
+                "Informe o número do imóvel para confirmar a localização."
+            } else {
+                "Aguarde o endereço ser preenchido para confirmar a localização."
+            }
+            return
+        }
+        val quoteReady = cart.hasOfficialDeliveryQuote || cart.deliveryQuote?.isSuccessfulDelivery == true
+        if (!quoteReady) {
+            addressFormError = if (cart.isQuotingDelivery) {
+                "Aguarde a confirmação da entrega antes de prosseguir."
+            } else {
+                "Não foi possível confirmar a entrega para este endereço. Revise os dados e tente novamente."
+            }
+            return
+        }
+        addressEditedByCustomer = false
+        addressFormError = null
+        showAddressEditor = false
+        showGpsAddressConfirmation = false
     }
 
     // Agendamento em Compose puro (substitui DatePickerDialog/TimePickerDialog).
@@ -285,12 +543,12 @@ fun CheckoutScreen(
                 )
             },
             confirmButton = {
-                Button(onClick = { showGpsAddressConfirmation = false }) {
+                Button(onClick = { useGpsAddressForCheckout() }) {
                     Text("Usar localização atual")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showGpsAddressConfirmation = false }) {
+                TextButton(onClick = { useSavedAddressForCheckout() }) {
                     Text("Usar endereço salvo")
                 }
             }
@@ -377,7 +635,15 @@ fun CheckoutScreen(
                                         .border(if (selected) 2.dp else 1.dp, if (selected) ItaSuperPrimary else Color(0xFFE2E2E2), RoundedCornerShape(16.dp))
                                         .selectable(
                                             selected = selected,
-                                            onClick = { cart.selectAddress(address.id) }
+                                            onClick = {
+                                                // Porte do selectSavedAddress: aplica
+                                                // o endereço e invalida a cotação.
+                                                addressEditedByCustomer = false
+                                                usingGpsAddress = false
+                                                cart.selectAddress(address.id)
+                                                applyAddressFields(address)
+                                                cart.invalidateDeliveryQuote(currentAddressInput())
+                                            }
                                         )
                                         .padding(horizontal = 12.dp, vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically
@@ -537,7 +803,7 @@ fun CheckoutScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 OutlinedTextField(
                                     value = cep,
-                                    onValueChange = { cep = it; cepError = null },
+                                    onValueChange = { cep = it; cepError = null; addressEditedByCustomer = true },
                                     label = { Text("CEP") },
                                     placeholder = { Text("00000-000") },
                                     singleLine = true,
@@ -585,7 +851,7 @@ fun CheckoutScreen(
                             Row(modifier = Modifier.fillMaxWidth()) {
                                 OutlinedTextField(
                                     value = street,
-                                    onValueChange = { street = it },
+                                    onValueChange = { street = it; addressEditedByCustomer = true },
                                     label = { Text("Rua / Logradouro") },
                                     singleLine = true,
                                     colors = OutlinedTextFieldDefaults.colors(
@@ -602,7 +868,7 @@ fun CheckoutScreen(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 OutlinedTextField(
                                     value = number,
-                                    onValueChange = { number = it },
+                                    onValueChange = { number = it; addressEditedByCustomer = true },
                                     label = { Text("Nº") },
                                     singleLine = true,
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -625,7 +891,7 @@ fun CheckoutScreen(
                             Row(modifier = Modifier.fillMaxWidth()) {
                                 OutlinedTextField(
                                     value = neighborhood,
-                                    onValueChange = { neighborhood = it },
+                                    onValueChange = { neighborhood = it; addressEditedByCustomer = true },
                                     label = { Text("Bairro") },
                                     singleLine = true,
                                     colors = OutlinedTextFieldDefaults.colors(
@@ -642,7 +908,7 @@ fun CheckoutScreen(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 OutlinedTextField(
                                     value = city,
-                                    onValueChange = { city = it },
+                                    onValueChange = { city = it; addressEditedByCustomer = true },
                                     label = { Text("Cidade") },
                                     singleLine = true,
                                     colors = OutlinedTextFieldDefaults.colors(
@@ -662,7 +928,7 @@ fun CheckoutScreen(
 
                             OutlinedTextField(
                                 value = state,
-                                onValueChange = { state = it },
+                                onValueChange = { state = it; addressEditedByCustomer = true },
                                 label = { Text("UF (opcional)") },
                                 placeholder = { Text("Ex: RJ") },
                                 singleLine = true,
@@ -682,7 +948,7 @@ fun CheckoutScreen(
 
                             OutlinedTextField(
                                 value = complement,
-                                onValueChange = { complement = it },
+                                onValueChange = { complement = it; addressEditedByCustomer = true },
                                 label = { Text("Complemento / Ponto de Referência (opcional)") },
                                 singleLine = true,
                                 colors = OutlinedTextFieldDefaults.colors(
@@ -696,6 +962,14 @@ fun CheckoutScreen(
                                     .fillMaxWidth()
                                     .testTag("checkout_complement_input")
                             )
+                            if (addressFormError != null) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = addressFormError!!,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
                             TextButton(
                                 onClick = { saveCurrentAddress() },
                                 modifier = Modifier.align(Alignment.End)
@@ -705,8 +979,8 @@ fun CheckoutScreen(
                             if (usingGpsAddress) {
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Button(
-                                    onClick = { saveCurrentAddress() },
-                                    enabled = !isQuotingDelivery,
+                                    onClick = { confirmGpsAddress() },
+                                    enabled = !cart.isQuotingDelivery,
                                     colors = ButtonDefaults.buttonColors(containerColor = ItaSuperPrimary),
                                     shape = RoundedCornerShape(16.dp),
                                     modifier = Modifier
@@ -725,7 +999,7 @@ fun CheckoutScreen(
                         if (!isPickup) {
                             Spacer(modifier = Modifier.height(10.dp))
                             when {
-                                deliveryQuoteReady -> {
+                                cart.hasOfficialDeliveryQuote && cart.deliveryQuote == null && !cart.isQuotingDelivery -> {
                                     Text(
                                         text = "Taxa fixa confirmada pela regra da loja",
                                         style = MaterialTheme.typography.bodySmall,
@@ -733,18 +1007,49 @@ fun CheckoutScreen(
                                         fontWeight = FontWeight.SemiBold
                                     )
                                 }
-                                isQuotingDelivery -> {
+                                cart.isQuotingDelivery -> {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = ItaSuperPrimary)
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text("Calculando a taxa de entrega...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
-                                // TODO(fase-rede): ramos de cotação real (distância em km,
-                                // frete grátis aplicado, falha de cotação) como no Android.
+                                cart.deliveryQuote?.isSuccessfulDelivery == true -> {
+                                    val quote = cart.deliveryQuote!!
+                                    val km = quote.distance.km
+                                    val kmText = if (km.isFinite()) {
+                                        val rounded = kotlin.math.round(km * 10).toLong()
+                                        "${rounded / 10},${rounded % 10}"
+                                    } else {
+                                        "0,0"
+                                    }
+                                    Text(
+                                        text = if (quote.pricing.freeDeliveryApplied) {
+                                            "Frete grátis aplicado pela regra da loja"
+                                        } else {
+                                            "Entrega confirmada para $kmText km"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = ItaSuperSuccess,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                cart.deliveryQuoteFailure != null -> {
+                                    Text(
+                                        text = cart.deliveryQuoteFailure!!.userMessage(),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
                                 else -> {
                                     Text(
-                                        text = "Preencha CEP, rua, número e bairro para calcular a entrega.",
+                                        text = if (usingGpsAddress && number.isBlank()) {
+                                            "Digite o número do imóvel para calcular a entrega."
+                                        } else if (usingGpsAddress) {
+                                            "Confira o endereço e aguarde a confirmação da entrega para prosseguir."
+                                        } else {
+                                            "Preencha CEP, rua, número e bairro para calcular a entrega."
+                                        },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -1158,7 +1463,7 @@ fun CheckoutScreen(
                         if (loyaltyDiscount > 0) {
                             Spacer(modifier = Modifier.height(6.dp))
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Fidelidade ($loyaltyPointsToUse pontos)", color = ItaSuperSuccess)
+                                Text("Fidelidade ($loyaltyPointsEffective pontos)", color = ItaSuperSuccess)
                                 Text("- ${formatBRL(loyaltyDiscount)}", color = ItaSuperSuccess, fontWeight = FontWeight.Bold)
                             }
                         }
@@ -1199,7 +1504,44 @@ fun CheckoutScreen(
             // Submit Order Button
             item {
                 Button(
-                    onClick = { cart.placeOrder() },
+                    onClick = {
+                        // Agendamento + liberação de pré-pedido em ISO UTC,
+                        // igual ao checkoutOrder do app original.
+                        val isPreorderOrder = isPreorder && !cart.scheduleNow
+                        val scheduledIso = if (isPreorderOrder) {
+                            val slot = cart.scheduledSlot
+                            if (slot != null) {
+                                val parts = slot.split(":")
+                                val hour = parts.getOrNull(0)?.toIntOrNull() ?: 12
+                                val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                                val tz = TimeZone.currentSystemDefault()
+                                val date = Clock.System.now().toLocalDateTime(tz).date
+                                    .plus(scheduleDayOffset, DateTimeUnit.DAY)
+                                LocalDateTime(date.year, date.monthNumber, date.dayOfMonth, hour, minute)
+                                    .toInstant(tz).toString()
+                            } else {
+                                ""
+                            }
+                        } else {
+                            ""
+                        }
+                        val releaseIso = if (isPreorderOrder && normalizePaymentMethod(cart.paymentMethod) != "pix") {
+                            store?.preorderReleaseAtMillis()?.let {
+                                Instant.fromEpochMilliseconds(it).toString()
+                            } ?: ""
+                        } else {
+                            ""
+                        }
+                        cart.placeOrder(
+                            walletDiscount = walletDiscount,
+                            loyaltyPointsUsed = loyaltyPointsEffective,
+                            loyaltyDiscount = loyaltyDiscount,
+                            addressInput = currentAddressInput(),
+                            scheduledForIso = scheduledIso,
+                            releaseAtIso = releaseIso,
+                            isPreorder = isPreorderOrder
+                        )
+                    },
                     enabled = !cart.isPlacingOrder && deliveryQuoteReady,
                     colors = ButtonDefaults.buttonColors(containerColor = ItaSuperPrimary),
                     shape = RoundedCornerShape(20.dp),
@@ -1221,7 +1563,7 @@ fun CheckoutScreen(
                         )
                     } else {
                         Text(
-                            text = if (!isPickup && isQuotingDelivery) {
+                            text = if (!isPickup && cart.isQuotingDelivery) {
                                 "Calculando entrega..."
                             } else {
                                 "Confirmar e Enviar Pedido • ${formatBRL(checkoutTotal)}"

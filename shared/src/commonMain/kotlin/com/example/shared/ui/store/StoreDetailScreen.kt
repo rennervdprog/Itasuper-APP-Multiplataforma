@@ -157,6 +157,11 @@ fun StoreDetailScreen(
             val found = SupabaseApi.fetchStoreById(storeId)
             if (found != null) {
                 storeState = found
+                // Registra o perfil de entrega da loja no carrinho (taxa fixa
+                // oficial entra na sacola sem depender de cotação).
+                cart.rememberStoreDeliveryProfile(
+                    found.id, found.deliveryFeeType, found.officialCustomerDeliveryFee
+                )
             } else if (storeState == null) {
                 storeErrorMessage = "Não foi possível abrir esta loja."
             }

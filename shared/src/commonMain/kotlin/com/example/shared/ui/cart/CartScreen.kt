@@ -45,6 +45,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -89,23 +90,57 @@ fun CartScreen(
     // Loja real via Supabase (sem dados mockados). Carrega assincronamente;
     // enquanto carrega, nenhuma regra da loja bloqueia a tela.
     var store by remember { mutableStateOf<Store?>(null) }
+    var cartValidationMessage by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(cart.storeId) {
-        store = cart.storeId?.let { id ->
+        val loadedStore = cart.storeId?.let { id ->
             try {
                 SupabaseApi.fetchStoreById(id)
             } catch (_: Throwable) {
                 null
             }
         }
+        store = loadedStore
+        if (loadedStore != null) {
+            cart.rememberStoreDeliveryProfile(
+                loadedStore.id, loadedStore.deliveryFeeType, loadedStore.officialCustomerDeliveryFee
+            )
+            // Revalida a sacola contra o catálogo atual (igual ao original):
+            // itens que saíram do ar/esgotaram são removidos com aviso.
+            try {
+                val products = SupabaseApi.fetchProductsForStore(loadedStore.id)
+                if (products.isNotEmpty() && cart.validateAgainstCatalog(products)) {
+                    cartValidationMessage =
+                        "Alguns itens da sua sacola não estão mais disponíveis e foram removidos."
+                }
+            } catch (_: Throwable) {
+                // Sem catálogo, mantém a sacola como está.
+            }
+        }
+    }
+
+    // Mantém a cotação oficial sincronizada com o endereço selecionado.
+    LaunchedEffect(cart.storeId, cart.subtotal, cart.deliveryType, cart.selectedAddressId, cart.savedAddresses) {
+        val selected = cart.savedAddresses.firstOrNull { it.id == cart.selectedAddressId }
+        cart.synchronizeDeliveryQuote(
+            selected?.let {
+                com.example.shared.model.DeliveryAddressInput(
+                    street = it.street,
+                    number = it.number,
+                    complement = it.complement,
+                    neighborhood = it.neighborhood,
+                    city = it.city,
+                    state = it.state,
+                    cep = it.cep
+                )
+            }
+        )
     }
     val isStoreClosed = store?.isOpen == false
     val minimumOrder = store?.minOrder ?: 0.0
     val belowMinimum = minimumOrder > 0.0 && cart.subtotal < minimumOrder
     val minimumMissing = (minimumOrder - cart.subtotal).coerceAtLeast(0.0)
-    // No Android: deliveryQuoteReady = deliveryType == "RETIRADA" || cart.hasOfficialDeliveryQuote.
-    // A cotação oficial do backend (quote-delivery) entra na Fase E; por
-    // enquanto vale a taxa da loja já carregada no carrinho.
-    val deliveryQuoteReady = cart.deliveryType == DeliveryType.PICKUP || cart.deliveryFee > 0.0
+    // Igual ao original: deliveryQuoteReady = RETIRADA || hasOfficialDeliveryQuote.
+    val deliveryQuoteReady = cart.deliveryType == DeliveryType.PICKUP || cart.hasOfficialDeliveryQuote
     val isDeliveryUnavailable = store?.let {
         it.deliveryMode.equals("own", ignoreCase = true) && it.hasAvailableDriver == false
     } == true
@@ -675,6 +710,17 @@ fun CartScreen(
                 }
             }
         }
+    }
+
+    if (cartValidationMessage != null) {
+        AlertDialog(
+            onDismissRequest = { cartValidationMessage = null },
+            title = { Text("Sacola atualizada") },
+            text = { Text(cartValidationMessage!!) },
+            confirmButton = {
+                TextButton(onClick = { cartValidationMessage = null }) { Text("Entendi") }
+            }
+        )
     }
 
     // Modal estilo Zé Delivery: explica para onde vai a taxa de entrega.
