@@ -217,12 +217,12 @@ private fun isTestStore(store: Store): Boolean {
         n.contains("teste") || n.contains("test")
 }
 
-/** Badge do cupom real, ex.: "-20%" ou "-R$10". */
+/** Badge do cupom real, ex.: "-20%" ou "-R$ 10,50". */
 private fun couponBadgeText(discountType: String, discountValue: Double): String =
     if (discountType.equals("percent", ignoreCase = true) || discountType.equals("percentage", ignoreCase = true))
         "-${discountValue.toInt()}%"
     else
-        "-R$${discountValue.toInt()}"
+        "-${com.example.shared.util.formatBRL(discountValue)}"
 
 /** Descrição legível do cupom real em pt-BR. */
 private fun couponDescriptionText(coupon: Coupon): String {
@@ -380,12 +380,7 @@ private fun buildDiscoverCollections(
 
 // ===== Formatação (sem String.format / sem java.util.Locale) =====
 
-private fun dscMoney(value: Double): String {
-    val totalCents = kotlin.math.round(value * 100)
-    val reais = totalCents / 100
-    val cents = (totalCents % 100).toString().padStart(2, '0')
-    return "R$ $reais,$cents"
-}
+private fun dscMoney(value: Double): String = com.example.shared.util.formatBRL(value)
 
 private fun dscRating(rating: Double?): String {
     if (rating == null) return "—"

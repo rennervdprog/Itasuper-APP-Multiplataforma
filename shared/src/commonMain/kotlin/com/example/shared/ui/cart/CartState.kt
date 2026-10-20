@@ -28,18 +28,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /**
- * Formatação manual de moeda para o commonMain (sem String.format).
- * Ex: 12.9 -> "R$ 12,90" | 1234.5 -> "R$ 1.234,50"
+ * Formatação de moeda do carrinho — delega pra fonte única
+ * (com.example.shared.util.formatBRL). Mantido aqui porque as telas do
+ * carrinho/checkout já importam deste pacote.
  */
-fun formatBRL(valor: Double): String {
-    val sinal = if (valor < 0) "-" else ""
-    val totalCentavos = (abs(valor) * 100 + 0.5).toLong()
-    val inteiro = totalCentavos / 100
-    val centavos = (totalCentavos % 100).toInt()
-    val intStr = inteiro.toString().reversed().chunked(3).joinToString(".").reversed()
-    val centStr = if (centavos < 10) "0$centavos" else "$centavos"
-    return "${sinal}R$ $intStr,$centStr"
-}
+fun formatBRL(valor: Double): String = com.example.shared.util.formatBRL(valor)
 
 /**
  * Normaliza a forma de pagamento de exibição para o vocabulário do backend.

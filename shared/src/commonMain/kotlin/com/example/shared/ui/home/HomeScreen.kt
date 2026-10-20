@@ -226,11 +226,8 @@ private fun currentHomeDaypart(): HomeDaypart {
     }
 }
 
-/** "R$ 12,90" — substitui String.format("R$ %.2f", price).replace('.', ','). */
-private fun formatPriceBR(price: Double): String {
-    val cents = round(price * 100).toLong()
-    return "R$ ${cents / 100}," + (cents % 100).toString().padStart(2, '0')
-}
+/** "R$ 12,90" — formatação canônica (util.formatBRL). */
+private fun formatPriceBR(price: Double): String = com.example.shared.util.formatBRL(price)
 
 /** "1,5 km" — substitui String.format(Locale("pt","BR"), "%.1f km", d). */
 private fun formatKmBR(distance: Double): String {
@@ -2375,9 +2372,21 @@ private fun HomeStoresWithCouponsSection(
             items(storesWithCoupons, key = { it.storeId }) { item ->
                 PromoBannerCard(
                     badge = "CUPOM",
-                    title = "-R$${item.discountValue}",
+                    title = if (item.discountType.equals("percent", ignoreCase = true) ||
+                        item.discountType.equals("percentage", ignoreCase = true)
+                    ) {
+                        "-${item.discountValue.toInt()}%"
+                    } else {
+                        "-${com.example.shared.util.formatBRL(item.discountValue)}"
+                    },
                     subtitle = item.storeName,
-                    captionTitle = "R$${item.discountValue} OFF em ${item.storeName}",
+                    captionTitle = if (item.discountType.equals("percent", ignoreCase = true) ||
+                        item.discountType.equals("percentage", ignoreCase = true)
+                    ) {
+                        "${item.discountValue.toInt()}% OFF em ${item.storeName}"
+                    } else {
+                        "${com.example.shared.util.formatBRL(item.discountValue)} OFF em ${item.storeName}"
+                    },
                     captionSubtitle = "Use o cupom ${item.couponCode}",
                     emoji = "🎟",
                     gradientColors = listOf(ItaSuperPrimary, Color(0xFFFFB37A)),

@@ -116,11 +116,11 @@ data class StoreWithCoupon(
     val discountValue: Double,
     val couponDescription: String?
 ) {
-    /** Texto do badge, ex: "-10%" ou "-R$10". */
+    /** Texto do badge, ex: "-10%" ou "-R$ 10,50". */
     val badgeText: String
         get() = when (discountType) {
-            "percent" -> "-${discountValue.toInt()}%"
-            else -> "-R$${discountValue.toInt()}"
+            "percent", "percentage" -> "-${discountValue.toInt()}%"
+            else -> "-${com.example.shared.util.formatBRL(discountValue)}"
         }
 }
 

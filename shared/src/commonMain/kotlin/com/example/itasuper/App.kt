@@ -1,5 +1,6 @@
 package com.example.itasuper
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,10 +17,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import com.example.shared.model.Store
 import com.example.shared.network.SupabaseApi
 import com.example.shared.platform.SecureStorage
 import com.example.shared.session.UserSessionRepository
+import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ItaSuperTheme
 import com.example.shared.ui.auth.AuthScreen
 import com.example.shared.ui.cart.CartScreen
@@ -61,8 +64,10 @@ fun App() {
     val cartState = rememberCartState()
     // Sessão real do cliente (UserSessionRepository): restaurada do storage na
     // abertura e sincronizada com o perfil remoto, como no app original.
+    // A restauração roda ANTES do primeiro frame decidir a tela — sem isso, a
+    // abertura piscava a tela de login e só depois "percebia" o login salvo.
+    remember { UserSessionRepository.initialize() }
     val session by UserSessionRepository.session.collectAsState()
-    LaunchedEffect(Unit) { UserSessionRepository.initialize() }
     val isLoggedIn = session.isLoggedIn
     // ITEM 5/6 — gate de aceite dos Termos/Privacidade (espelha o MainActivity do
     // app Android): após o login, verifica mudanças legais pendentes no backend e
@@ -74,7 +79,16 @@ fun App() {
         legalConsentState.checkForUpdates(session)
     }
     ItaSuperTheme {
-        if (!isLoggedIn) {
+        if (!session.isSessionRestored) {
+            // Splash neutra enquanto a sessão local é restaurada (fundo branco,
+            // igual à splash do app original — nada de tela de login piscando).
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color.White),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = ItaSuperPrimary)
+            }
+        } else if (!isLoggedIn) {
             AuthScreen(
                 onAuthSuccess = {
                     navigator.navigateTo(AppScreen.HOME)

@@ -227,13 +227,8 @@ object SupabaseApi {
         put(key, JsonPrimitive(value))
     }
 
-    /** "R$ 4,90" — sem String.format (indisponível no commonMain). */
-    private fun formatBrl(value: Double): String {
-        val cents = round(value * 100)
-        val intPart = (cents / 100).toLong()
-        val decPart = kotlin.math.abs(cents % 100).toLong()
-        return "R$ $intPart,${decPart.toString().padStart(2, '0')}"
-    }
+    /** "R$ 4,90" — delega pra formatação canônica (util.formatBRL). */
+    private fun formatBrl(value: Double): String = com.example.shared.util.formatBRL(value)
 
     private fun parseErrorMessage(jsonText: String, defaultMsg: String): String {
         return try {

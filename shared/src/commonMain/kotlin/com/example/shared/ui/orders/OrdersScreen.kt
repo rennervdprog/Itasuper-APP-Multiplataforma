@@ -154,13 +154,7 @@ private fun Order.estimatedWindow(): String = when (status.lowercase()) {
     else -> "Em atualização"
 }
 
-private fun money(value: Double): String {
-    val cents = (value * 100).roundToLong()
-    val inteiro = cents / 100
-    val dec = (cents % 100).let { if (it < 0) -it else it }
-    val intStr = inteiro.toString().reversed().chunked(3).joinToString(".").reversed()
-    return "R$ $intStr,${dec.toString().padStart(2, '0')}"
-}
+private fun money(value: Double): String = com.example.shared.util.formatBRL(value)
 
 private fun oneDecimal(value: Double): String {
     val tenths = (value * 10).roundToLong()
