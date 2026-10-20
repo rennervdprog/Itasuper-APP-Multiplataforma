@@ -107,6 +107,7 @@ class CartHolder {
 
     var couponInput by mutableStateOf("")
     var appliedCouponCode by mutableStateOf<String?>(null)
+        private set
 
     /**
      * Cupom pendente vindo da seção "Lojas com Cupom" da Home (porte do
@@ -115,7 +116,6 @@ class CartHolder {
      */
     var pendingCouponCode by mutableStateOf<String?>(null)
     var pendingCouponStoreId by mutableStateOf<String?>(null)
-        private set
     var couponDiscount by mutableStateOf(0.0)
         private set
     var couponError by mutableStateOf<String?>(null)
