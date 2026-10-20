@@ -192,6 +192,7 @@ fun App() {
                                 // Vitrine da loja (cardápio + produtos).
                                 StoreDetailScreen(
                                     storeId = storeDetailId,
+                                    initialProductId = navigator.storeDetailProductId,
                                     cart = cartState,
                                     onBackClick = { navigator.closeStore() },
                                     onNavigateToCart = {
@@ -209,12 +210,14 @@ fun App() {
                                     AppScreen.HOME -> HomeScreen(
                                         onSearchClick = { navigator.navigateTo(AppScreen.SEARCH) },
                                         onStoreClick = { navigator.openStore(it) },
+                                        onProductClick = { p -> navigator.openStore(p.storeId, p.id) },
                                         onCartClick = { navigator.navigateTo(AppScreen.CART) },
                                         cartItemCount = cartState.totalItemCount,
                                         cart = cartState
                                     )
                                     AppScreen.SEARCH -> SearchScreen(
                                         onStoreClick = { navigator.openStore(it) },
+                                        onProductClick = { p -> navigator.openStore(p.storeId, p.id) },
                                         cart = cartState
                                     )
                                     AppScreen.ORDERS -> OrdersScreen(

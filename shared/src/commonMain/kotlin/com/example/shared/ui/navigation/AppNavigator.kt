@@ -39,6 +39,10 @@ class AppNavigator {
     var storeDetailId by mutableStateOf<String?>(null)
         private set
 
+    /** Produto que a vitrine deve abrir ao entrar (vindo de um card de produto). */
+    var storeDetailProductId by mutableStateOf<String?>(null)
+        private set
+
     /** Id da loja aberta no "Sobre a loja" (a partir da vitrine); null = fechado. */
     var storeInfoId by mutableStateOf<String?>(null)
         private set
@@ -51,12 +55,14 @@ class AppNavigator {
         currentScreen = screen
     }
 
-    fun openStore(storeId: String) {
+    fun openStore(storeId: String, productId: String? = null) {
         storeDetailId = storeId
+        storeDetailProductId = productId
     }
 
     fun closeStore() {
         storeDetailId = null
+        storeDetailProductId = null
     }
 
     fun openStoreInfo(storeId: String) {

@@ -139,6 +139,7 @@ private data class PendingAdd(
 @Composable
 fun StoreDetailScreen(
     storeId: String,
+    initialProductId: String? = null,
     cart: CartHolder,
     onBackClick: () -> Unit,
     onNavigateToCart: () -> Unit,
@@ -244,6 +245,19 @@ fun StoreDetailScreen(
     var selectedProduct by remember { mutableStateOf<Product?>(null) }
     var modalQuantity by remember { mutableStateOf(1) }
     var modalNotes by remember { mutableStateOf("") }
+
+    // Produto vindo de um card (Home/Descobrir): assim que o cardápio carrega,
+    // abre o detalhe dele — igual ao initialProductId do app original. Sem
+    // isso, o clique no card só abria a loja e o item se perdia.
+    var initialProductOpened by remember(storeId, initialProductId) { mutableStateOf(false) }
+    LaunchedEffect(products, initialProductId) {
+        val productId = initialProductId ?: return@LaunchedEffect
+        if (initialProductOpened || products.isEmpty()) return@LaunchedEffect
+        products.firstOrNull { it.id == productId }?.let {
+            selectedProduct = it
+            initialProductOpened = true
+        }
+    }
 
     // Adicionais do produto aberto no modal — porte do openProductModal do
     // original: abre na hora e busca os vínculos por produto

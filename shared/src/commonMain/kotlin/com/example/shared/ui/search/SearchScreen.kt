@@ -417,6 +417,7 @@ private fun maxDeliveryMinutes(deliveryTime: String): Int? {
 @Composable
 fun SearchScreen(
     onStoreClick: (String) -> Unit,
+    onProductClick: (DiscoverProduct) -> Unit = { onStoreClick(it.storeId) },
     initialCategory: String? = null,
     cart: CartHolder? = null
 ) {
@@ -726,7 +727,8 @@ fun SearchScreen(
                     debouncedQuery = term
                     recentTerms = SearchHistory.add(term, recentTerms)
                 },
-                onNavigateToStore = onStoreClick
+                onNavigateToStore = onStoreClick,
+                onProductClick = onProductClick
             )
         } else {
             DiscoverLanding(
@@ -2126,7 +2128,8 @@ private fun DiscoverResults(
     recentSearches: List<String>,
     onClearAll: () -> Unit,
     onRecentSearch: (String) -> Unit,
-    onNavigateToStore: (String) -> Unit
+    onNavigateToStore: (String) -> Unit,
+    onProductClick: (DiscoverProduct) -> Unit
 ) {
     if (query.length < 2 && selectedCategory == null && selectedQuickFilter == null) {
         // Busca vazia: mostra buscas recentes
@@ -2256,7 +2259,7 @@ private fun DiscoverResults(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onNavigateToStore(product.storeId) }
+                        .clickable { onProductClick(product) }
                         .padding(horizontal = 18.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

@@ -334,6 +334,7 @@ private fun homeCategories(): List<CategoryItem> = listOf(
 fun HomeScreen(
     onSearchClick: () -> Unit = {},
     onStoreClick: (String) -> Unit = {},
+    onProductClick: (DiscoverProduct) -> Unit = { onStoreClick(it.storeId) },
     onCartClick: () -> Unit = {},
     cartItemCount: Int = 0,
     cart: CartHolder? = null
@@ -667,7 +668,7 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(24.dp))
             HomeAffordableProductsSection(
                 products = affordableProducts,
-                onProductClick = { onStoreClick(it.storeId) },
+                onProductClick = onProductClick,
                 onViewMore = onSearchClick
             )
         }
@@ -676,7 +677,7 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(24.dp))
             HomeRepeatProductsSection(
                 products = repeatProducts,
-                onProductClick = { onStoreClick(it.storeId) },
+                onProductClick = onProductClick,
                 onViewMore = { /* TODO(fase-rede): tela de pedidos */ }
             )
         }

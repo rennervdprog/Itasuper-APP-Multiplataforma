@@ -13,7 +13,7 @@ android {
         applicationId = "com.example.itasuper"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 4
+        versionCode = 5
         versionName = "1.0.0"
     }
 
