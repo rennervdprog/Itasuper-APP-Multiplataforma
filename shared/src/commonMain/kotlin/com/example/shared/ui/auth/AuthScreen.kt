@@ -440,7 +440,7 @@ private class AuthState {
                     termsVersion = legalDocuments.currentTermsVersion,
                     privacyVersion = legalDocuments.currentPrivacyVersion
                 )
-                if (!acceptanceResult.isSuccess) {
+                if (!acceptanceResult.success) {
                     uiState = uiState.copy(
                         isLoading = false,
                         errorMessage = acceptanceResult.errorMessage
