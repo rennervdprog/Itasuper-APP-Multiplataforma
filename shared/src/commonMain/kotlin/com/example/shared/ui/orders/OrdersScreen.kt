@@ -76,6 +76,9 @@ import com.example.shared.model.RefundEligibility
 import com.example.shared.network.SupabaseApi
 import com.example.shared.model.PixDirectPaymentUiState
 import com.example.shared.model.PixPaymentUiState
+import com.example.shared.platform.rememberFilePicker
+import com.example.shared.ui.cart.CartHolder
+import com.example.shared.ui.common.StoreSwitchBottomSheet
 import com.example.shared.platform.SecureStorage
 import com.example.shared.session.UserSessionRepository
 import com.example.shared.theme.ItaSuperBorder
@@ -103,8 +106,9 @@ import kotlin.math.roundToLong
 //   da loja: TUDO real, igual ao OrdersViewModel do app atual.
 // - Clipboard: LocalClipboardManager do Compose (código de entrega e PIX).
 // - QR Code PIX: imagem Base64 real decodificada e exibida via Coil.
-// - Pendente: upload de comprovante do PIX Direto (seletor de arquivo
-//   nativo via expect/actual) e "repetir pedido" (fluxo de sacola).
+// - Upload de comprovante do PIX Direto: seletor nativo via expect/actual
+//   (rememberFilePicker) + upload real; "repetir pedido" repõe a sacola
+//   com confirmação ao trocar de loja, igual ao original.
 // - "Acompanhar entrega": abre DeliveryTrackingScreen via AppNavigator.
 // =============================================================================
 
@@ -256,7 +260,9 @@ private fun isWithinRatingWindow(createdAt: String): Boolean {
 @Composable
 fun OrdersScreen(
     onExploreClick: () -> Unit = {},
-    onTrackDelivery: (orderId: String) -> Unit = {}
+    onTrackDelivery: (orderId: String) -> Unit = {},
+    cart: CartHolder? = null,
+    onNavigateToCart: () -> Unit = {}
 ) {
     val orders = remember { mutableStateListOf<Order>() }
     val selectedFilter = remember { mutableStateOf(OrdersFilter.ACTIVE) }
@@ -300,6 +306,83 @@ fun OrdersScreen(
         if (session.userId.isNotBlank()) reloadOrders()
     }
 
+    // Repetir pedido — porte do repeatOrder/confirmRepeatOrder do original:
+    // sacola com itens de OUTRA loja pede confirmação (StoreSwitchBottomSheet)
+    // antes de esvaziar; sem conflito, adiciona e vai para a sacola.
+    fun repeatOrder(order: Order) {
+        val activeCart = cart ?: return
+        if (order.items.isEmpty()) return
+        val firstStoreId = order.items.first().product.storeId
+        if (activeCart.storeId != null && activeCart.storeId != firstStoreId && activeCart.items.isNotEmpty()) {
+            pendingRepeatOrder.value = order
+            pendingRepeatStoreName.value = activeCart.storeName
+            return
+        }
+        order.items.forEach { item ->
+            activeCart.addProduct(
+                product = item.product,
+                quantity = item.quantity,
+                notes = item.notes,
+                storeName = order.storeName
+            )
+        }
+        onNavigateToCart()
+    }
+
+    fun confirmRepeatOrder() {
+        val activeCart = cart ?: return
+        val order = pendingRepeatOrder.value ?: return
+        pendingRepeatOrder.value = null
+        activeCart.clearCart()
+        order.items.forEach { item ->
+            activeCart.addProduct(
+                product = item.product,
+                quantity = item.quantity,
+                notes = item.notes,
+                storeName = order.storeName
+            )
+        }
+        onNavigateToCart()
+    }
+
+    // Seletor nativo de comprovante do PIX Direto (OpenDocument no Android,
+    // UIDocumentPicker no iOS) + upload real via storage (uploadPixDirectProof).
+    val proofPicker = rememberFilePicker(
+        mimeTypes = listOf("image/jpeg", "image/png", "application/pdf")
+    ) { picked ->
+        val state = pixDirectDialog.value
+        val order = state?.order
+        if (picked != null && state != null && order != null) {
+            if (session.accessToken.isBlank()) {
+                pixDirectDialog.value = state.copy(
+                    errorMessage = "Sua sessão expirou. Entre novamente para enviar o comprovante."
+                )
+            } else {
+                pixDirectDialog.value = state.copy(isUploading = true, errorMessage = null)
+                scope.launch {
+                    val result = SupabaseApi.uploadPixDirectProof(
+                        orderId = order.id,
+                        storeId = order.storeId,
+                        bytes = picked.bytes,
+                        mimeType = picked.mimeType,
+                        extension = picked.extension,
+                        accessToken = session.accessToken
+                    )
+                    val current = pixDirectDialog.value ?: state
+                    pixDirectDialog.value = result.fold(
+                        onSuccess = { current.copy(isUploading = false, proofSent = true) },
+                        onFailure = { e ->
+                            current.copy(
+                                isUploading = false,
+                                errorMessage = e.message ?: "Não foi possível enviar o comprovante."
+                            )
+                        }
+                    )
+                }
+            }
+        }
+    }
+
     val filteredOrders = orders.filter { it.matchesFilter(selectedFilter.value) }
     val activeOrders = filteredOrders.filterNot { it.isFinished() }
     val previousOrders = filteredOrders.filter { it.isFinished() }
@@ -312,6 +395,8 @@ fun OrdersScreen(
     val ratingPublic = remember { mutableStateOf(true) }
     val orderPendingRefund = remember { mutableStateOf<Order?>(null) }
     val refundDescription = remember { mutableStateOf("") }
+    val pendingRepeatOrder = remember { mutableStateOf<Order?>(null) }
+    val pendingRepeatStoreName = remember { mutableStateOf("") }
     val pixDialog = remember { mutableStateOf<PixPaymentUiState?>(null) }
     val pixDirectDialog = remember { mutableStateOf<PixDirectPaymentUiState?>(null) }
 
@@ -560,8 +645,22 @@ fun OrdersScreen(
         )
     }
 
+    if (pendingRepeatOrder.value != null) {
+        StoreSwitchBottomSheet(
+            currentStoreName = pendingRepeatStoreName.value,
+            onConfirm = { confirmRepeatOrder() },
+            onDismiss = { pendingRepeatOrder.value = null }
+        )
+    }
+
     pixDialog.value?.let { PixPaymentDialog(state = it, onDismiss = { pixDialog.value = null }) }
-    pixDirectDialog.value?.let { PixDirectPaymentDialog(state = it, onDismiss = { pixDirectDialog.value = null }) }
+    pixDirectDialog.value?.let {
+        PixDirectPaymentDialog(
+            state = it,
+            onDismiss = { pixDirectDialog.value = null },
+            onSendProof = { proofPicker() }
+        )
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(Color(0xFFFAFAFA))) {
         TopAppBar(
@@ -710,7 +809,7 @@ fun OrdersScreen(
                     items(previousOrders, key = { it.id }) { order ->
                         PreviousOrderCard(
                             order = order,
-                            onRepeatOrder = { /* TODO(fase-rede): repetir pedido precisa do fluxo de sacola */ },
+                            onRepeatOrder = { repeatOrder(order) },
                             onRateOrder = { orderPendingRating.value = order },
                             onRefundOrder = { orderPendingRefund.value = order },
                             onEditRating = { orderPendingUpdateConfirm.value = order },
@@ -1305,7 +1404,8 @@ private fun twoDigits(v: Long): String = v.toString().padStart(2, '0')
 @Composable
 private fun PixDirectPaymentDialog(
     state: PixDirectPaymentUiState,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onSendProof: () -> Unit = {}
 ) {
     val expiresAtMillis = state.order?.pixExpiresAt?.ifBlank { null }?.let { raw ->
         runCatching { Instant.parse(raw).toEpochMilliseconds() }.getOrNull()
@@ -1400,9 +1500,7 @@ private fun PixDirectPaymentDialog(
         confirmButton = {
             if (!state.proofSent) {
                 Button(
-                    // TODO(kmp-upload): o original abre ActivityResultContracts.OpenDocument();
-                    // upload nativo de comprovante pendente de expect/actual.
-                    onClick = { },
+                    onClick = onSendProof,
                     enabled = !state.isUploading && !deadlineExpired,
                     colors = ButtonDefaults.buttonColors(containerColor = ItaSuperPrimary)
                 ) {

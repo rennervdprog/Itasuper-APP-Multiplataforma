@@ -47,6 +47,7 @@ import coil3.compose.AsyncImage
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import com.example.shared.model.Order
+import com.example.shared.platform.rememberFilePicker
 import com.example.shared.theme.ItaSuperHighlightBg
 import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ItaSuperSuccess
@@ -396,12 +397,25 @@ private fun PixDirectSection(order: Order, cart: CartHolder) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
                     )
-                    Text(
-                        "A seleção do arquivo estará disponível na versão final do app.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
+                    val proofPicker = rememberFilePicker(
+                        mimeTypes = listOf("image/jpeg", "image/png", "application/pdf")
+                    ) { picked ->
+                        if (picked != null) {
+                            cart.uploadPixDirectProof(picked.bytes, picked.mimeType, picked.extension)
+                        }
+                    }
+                    Button(
+                        onClick = { proofPicker() },
+                        enabled = !directState.isUploading,
+                        colors = ButtonDefaults.buttonColors(containerColor = ItaSuperPrimary),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            if (directState.isUploading) "Enviando…" else "Enviar comprovante",
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
                 if (directState.errorMessage != null) {
                     Text(

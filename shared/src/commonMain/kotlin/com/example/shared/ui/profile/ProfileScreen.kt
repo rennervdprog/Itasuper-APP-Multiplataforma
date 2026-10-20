@@ -77,6 +77,7 @@ import org.jetbrains.compose.resources.painterResource
 import com.example.shared.model.LegalDocumentLinks
 import com.example.shared.model.normalizeBrazilianUf
 import com.example.shared.network.SupabaseApi
+import com.example.shared.platform.rememberTextSharer
 import com.example.shared.session.UserSessionRepository
 import com.example.shared.theme.ItaSuperBorder
 import com.example.shared.theme.ItaSuperHighlightBg
@@ -116,6 +117,7 @@ fun ProfileScreen(onLogout: () -> Unit = {}, onNavigateToOrders: () -> Unit = {}
     val session by UserSessionRepository.session.collectAsState()
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
+    val textSharer = rememberTextSharer()
 
     var expandedSection by remember { mutableStateOf<String?>(null) }
     var personalDirty by remember { mutableStateOf(false) }
@@ -203,9 +205,10 @@ fun ProfileScreen(onLogout: () -> Unit = {}, onNavigateToOrders: () -> Unit = {}
             .onFailure { feedback = "Não foi possível abrir o documento." }
     }
 
-    // TODO(plataforma): compartilhamento nativo (folha de share) via expect/actual.
+    /** Compartilhar o app — folha nativa com o texto do app original. */
     fun shareApp() {
-        feedback = "Disponível na versão final do app."
+        val opened = textSharer("Peça no ItaSuper: https://itasuper.com.br", "Compartilhar ItaSuper")
+        if (!opened) feedback = "Não foi possível abrir o compartilhamento."
     }
 
     fun savePersonalProfile() {

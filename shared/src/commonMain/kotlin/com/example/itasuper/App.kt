@@ -205,7 +205,9 @@ fun App() {
                                     )
                                     AppScreen.ORDERS -> OrdersScreen(
                                         onExploreClick = { navigator.navigateTo(AppScreen.HOME) },
-                                        onTrackDelivery = { navigator.openTracking(it) }
+                                        onTrackDelivery = { navigator.openTracking(it) },
+                                        cart = cartState,
+                                        onNavigateToCart = { navigator.navigateTo(AppScreen.CART) }
                                     )
                                     AppScreen.NOTIFICATIONS -> NotificationsScreen(
                                         onOpenOrder = { navigator.navigateTo(AppScreen.ORDERS) }

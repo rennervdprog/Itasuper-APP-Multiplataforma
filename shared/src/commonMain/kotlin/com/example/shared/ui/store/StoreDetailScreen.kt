@@ -60,6 +60,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -96,6 +97,7 @@ import com.example.shared.model.ProductAddonsPayload
 import com.example.shared.model.SelectedAddonItem
 import com.example.shared.model.Store
 import com.example.shared.network.SupabaseApi
+import com.example.shared.session.FavoriteStoresRepository
 import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ItaSuperSecondary
 import com.example.shared.theme.ItaSuperTextPrimary
@@ -307,7 +309,9 @@ fun StoreDetailScreen(
             }
         }
 
-    var isFavorite by remember { mutableStateOf(false) }
+    // Favorito REAL (persistência local, igual ao FavoriteStoresStorage).
+    val favoriteStoreIds by FavoriteStoresRepository.favorites.collectAsState()
+    val isFavorite = favoriteStoreIds.contains(storeId)
     var showBuilder by remember { mutableStateOf<String?>(null) }
 
     // Confirmação de troca de loja (espelha pendingStoreSwitch do original):
@@ -526,7 +530,7 @@ fun StoreDetailScreen(
                         onOpenMaps = { /* TODO(fase-rede): abrir mapa */ },
                         onInfoClick = onNavigateToInfo,
                         isFavorite = isFavorite,
-                        onFavoriteClick = { isFavorite = !isFavorite }
+                        onFavoriteClick = { FavoriteStoresRepository.toggleFavorite(storeId) }
                     )
                 }
 

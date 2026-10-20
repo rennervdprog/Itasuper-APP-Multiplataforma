@@ -31,6 +31,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,6 +50,8 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.example.shared.model.Store
 import com.example.shared.model.StoreOpeningHour
+import com.example.shared.network.SupabaseApi
+import com.example.shared.session.FavoriteStoresRepository
 import com.example.shared.theme.ItaSuperPrimary
 import kotlinx.datetime.Clock
 import kotlinx.datetime.TimeZone
@@ -57,15 +61,14 @@ import kotlinx.datetime.toLocalDateTime
  * Tela "Sobre a loja" — layout IDÊNTICO ao StoreInfoScreen do app Android original
  * (mesma estrutura, textos, ordem, espaçamentos em dp, fontes em sp e cores do tema ItaSuper).
  *
- * Diferenças inevitáveis no KMP (documentadas):
- * - Sem ViewModel: a loja chega por parâmetro; avaliações/favorito são mocks via parâmetros
- *   opcionais até a fase de rede.
- * - TODO(expect-actual): abrir o mapa (geo:) e o WhatsApp usavam Intents Android no original;
- *   aqui o toque no mapa/rota chama [onOpenMap]. Favoritar é só estado local por enquanto.
+ * Dados reais (Fase E): avaliações vêm de store_rating_aggregates + reviews
+ * públicas; favorito persiste localmente (FavoriteStoresRepository).
+ * Diferença documentada: abrir o mapa (geo:) e o WhatsApp usavam Intents
+ * Android no original; aqui o toque no mapa/rota chama [onOpenMap].
  */
 
 // ---------------------------------------------------------------------------
-// Dados da aba "Avaliações" (mocks até a fase de rede plugar o Supabase real)
+// Dados da aba "Avaliações" (carregados da API real no corpo da tela)
 // ---------------------------------------------------------------------------
 
 /** Resumo de avaliações da loja. [dist] = contagens de 5→1 estrelas. */
@@ -93,15 +96,41 @@ fun StoreInfoScreen(
     store: Store,
     onBackClick: () -> Unit,
     onOpenMap: () -> Unit = {},
-    isLoading: Boolean = false,
-    rating: StoreRatingSummary = StoreRatingSummary(),
-    reviews: List<StoreReview> = emptyList(),
-    reviewsLoading: Boolean = false,
-    isFavoriteInitial: Boolean = false,
-    onFavoriteChange: (Boolean) -> Unit = {}
+    isLoading: Boolean = false
 ) {
     var selectedTab by remember { mutableStateOf(1) } // 0 = Avaliações, 1 = Informações
-    var isFavorite by remember { mutableStateOf(isFavoriteInitial) }
+    // Favorito REAL (persistência local, igual ao FavoriteStoresStorage).
+    val favorites by FavoriteStoresRepository.favorites.collectAsState()
+    val isFavorite = favorites.contains(store.id)
+    // Avaliações REAIS (store_rating_aggregates + reviews públicas).
+    var rating by remember(store.id) { mutableStateOf(StoreRatingSummary()) }
+    var reviews by remember(store.id) { mutableStateOf<List<StoreReview>>(emptyList()) }
+    var reviewsLoading by remember(store.id) { mutableStateOf(true) }
+    LaunchedEffect(store.id) {
+        reviewsLoading = true
+        try {
+            val aggregate = SupabaseApi.getStoreRatingAggregate(store.id)
+            if (aggregate != null) {
+                rating = StoreRatingSummary(
+                    avg = aggregate.avgRating,
+                    count = aggregate.reviewCount,
+                    dist = listOf(5, 4, 3, 2, 1).map { aggregate.distribution[it] ?: 0 }
+                )
+            }
+            reviews = SupabaseApi.getStoreReviews(store.id).map { review ->
+                StoreReview(
+                    authorName = review.authorName,
+                    rating = review.rating,
+                    comment = review.comment,
+                    createdAtIso = review.createdAt,
+                    storeResponse = review.responses.firstOrNull()?.message ?: ""
+                )
+            }
+        } catch (_: Throwable) {
+            // Sem avaliações carregadas: a aba mostra o estado vazio.
+        }
+        reviewsLoading = false
+    }
     val address = store.displayAddress()
     val payments = store.paymentMethods()
     val hours = store.openingHours.sortedWith(
@@ -162,8 +191,7 @@ fun StoreInfoScreen(
                     modifier = Modifier
                         .size(40.dp)
                         .clickable {
-                            isFavorite = !isFavorite
-                            onFavoriteChange(isFavorite)
+                            FavoriteStoresRepository.toggleFavorite(store.id)
                         }
                         .padding(8.dp)
                 )
