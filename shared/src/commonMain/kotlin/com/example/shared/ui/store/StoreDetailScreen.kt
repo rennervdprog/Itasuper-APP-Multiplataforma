@@ -2198,9 +2198,18 @@ private fun PizzaBuilderSheetContent(
             )
         }
 
+        // Item montado tem identidade própria (igual ao app original): id
+        // sintético custom_pizza_/custom_pastel_ + os sabores guardados.
+        // NUNCA reusar o id do 1º sabor — a revalidação da sacola trocaria o
+        // produto pelo do catálogo e o preço montado sumiria (bug corrigido).
         val builtProduct = flavors[0].copy(
+            id = (if (isPastel) "custom_pastel_" else "custom_pizza_") +
+                Clock.System.now().toEpochMilliseconds(),
             price = unitPrice,
-            name = displayName
+            name = displayName,
+            description = "Sabores: ${flavors.joinToString(" / ") { it.name }}",
+            category = if (isPastel) "Pastéis" else "Pizzas",
+            customFlavorIds = flavors.map { it.id }
         )
         onRequestAdd(builtProduct, quantity, observations, addons)
         onClose()

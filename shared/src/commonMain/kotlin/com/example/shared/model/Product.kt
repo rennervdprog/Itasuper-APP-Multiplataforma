@@ -108,7 +108,9 @@ data class Product(
     val pizzaCategoryId: String = "",
     val pizzaSizeOverrides: Map<String, Double> = emptyMap(),
     val pizzaUnavailableSizeIds: Set<String> = emptySet(),
-    val legacyPizzaSizes: List<PizzaLegacySize> = emptyList()
+    val legacyPizzaSizes: List<PizzaLegacySize> = emptyList(),
+    /** Sabores de um item montado (pizza/pastel meio a meio) — igual ao app original. */
+    val customFlavorIds: List<String> = emptyList()
 )
 
 data class CartItem(

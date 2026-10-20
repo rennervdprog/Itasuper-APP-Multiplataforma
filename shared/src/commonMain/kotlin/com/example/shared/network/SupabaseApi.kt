@@ -1284,6 +1284,20 @@ object SupabaseApi {
                 )
             }
 
+            // Produto customizado do montador (pizza/pastel meio a meio): o ID
+            // sintético não é UUID — sem sabor identificado, o pedido não pode
+            // ser gravado (igual ao app original).
+            for (cartItem in order.items) {
+                if (cartItem.product.id.startsWith("custom_") &&
+                    cartItem.product.customFlavorIds.firstOrNull().isNullOrBlank()
+                ) {
+                    return OrderSubmissionResponse(
+                        false,
+                        errorMessage = "Não foi possível identificar o produto personalizado. Tente novamente."
+                    )
+                }
+            }
+
             val itemsJson = buildJsonArray {
                 order.items.forEach { cartItem ->
                     val addonsJson = buildJsonArray {
@@ -1303,7 +1317,17 @@ object SupabaseApi {
                     add(
                         buildJsonObject {
                             putStr("order_id", orderId)
-                            putStr("product_id", cartItem.product.id)
+                            // Item montado: product_id (FK) é o 1º sabor; os
+                            // detalhes da montagem vão no metadata (igual ao
+                            // app original, pro KDS/painel exibirem certo).
+                            putStr(
+                                "product_id",
+                                if (cartItem.product.id.startsWith("custom_")) {
+                                    cartItem.product.customFlavorIds.firstOrNull().orEmpty()
+                                } else {
+                                    cartItem.product.id
+                                }
+                            )
                             putNum("quantity", cartItem.quantity)
                             putNum("unit_price", cartItem.unitPrice)
                             // O app Android grava a representação JSON dos adicionais
@@ -1311,6 +1335,26 @@ object SupabaseApi {
                             if (addonsJson.isNotEmpty()) putStr("addons", addonsJson.toString())
                             else put("addons", JsonNull)
                             putStr("observations", cartItem.notes.ifBlank { null })
+                            if (cartItem.product.id.startsWith("custom_")) {
+                                put(
+                                    "metadata",
+                                    buildJsonObject {
+                                        putBool("custom_builder", true)
+                                        putStr(
+                                            "builder_type",
+                                            if (cartItem.product.id.startsWith("custom_pizza")) "pizza" else "pastel"
+                                        )
+                                        putStr("custom_name", cartItem.product.name)
+                                        putStr("custom_description", cartItem.product.description)
+                                        put(
+                                            "flavor_ids",
+                                            buildJsonArray {
+                                                cartItem.product.customFlavorIds.forEach { add(JsonPrimitive(it)) }
+                                            }
+                                        )
+                                    }
+                                )
+                            }
                         }
                     )
                 }

@@ -299,6 +299,9 @@ class CartHolder {
         val available = products.filter { it.isAvailable }.associateBy { it.id }
         val before = totalItemCount
         val validatedItems = items.mapNotNull { item ->
+            // Itens montados (pizza/pastel meio a meio) não são produtos do
+            // catálogo: o preço é o da montagem — nunca trocar nem remover.
+            if (item.product.id.startsWith("custom_")) return@mapNotNull item
             val currentProduct = available[item.product.id] ?: return@mapNotNull null
             item.copy(product = currentProduct)
         }
