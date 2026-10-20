@@ -3,7 +3,8 @@ package com.example.shared.model
 /**
  * Localização do entregador (tabela `driver_locations` no Supabase).
  * Espelha com.example.data.remote.DriverLocation do app Android nativo.
- * TODO(fase-rede): buscar via Ktor/SupabaseClient (fetchDriverLocation) em vez de mock.
+ * Busca real em `SupabaseApi.fetchDriverLocation` (polling de 20s na tela
+ * de rastreio, igual ao original).
  */
 data class DriverLocation(
     val driverId: String,

@@ -71,11 +71,12 @@ import com.example.shared.theme.ItaSuperBorder
 import com.example.shared.theme.ItaSuperHighlightBg
 import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ItaSuperSuccess
-import com.example.shared.ui.mock.findMockStore
+import com.example.shared.model.Store
+import com.example.shared.network.SupabaseApi
 
-// TODO(fase-rede): trocar os mocks (loja, taxa de entrega, cupom) pelos dados
-// reais vindos do SupabaseClient via Ktor. Layout espelha 1:1 o CartScreen do
-// app Android (Itasuper-APP-NATIVO): mesma estrutura, textos, dps e sps.
+// Loja, taxa de entrega e cupom são reais (SupabaseApi). Falta a cotação
+// oficial de entrega (quote-delivery) — Fase E. Layout espelha 1:1 o
+// CartScreen do app Android (Itasuper-APP-NATIVO): estrutura, textos, dps e sps.
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,13 +86,25 @@ fun CartScreen(
     onNavigateToCheckout: () -> Unit,
     onNavigateToHome: () -> Unit
 ) {
-    val store = cart.storeId?.let { findMockStore(it) }
+    // Loja real via Supabase (sem dados mockados). Carrega assincronamente;
+    // enquanto carrega, nenhuma regra da loja bloqueia a tela.
+    var store by remember { mutableStateOf<Store?>(null) }
+    LaunchedEffect(cart.storeId) {
+        store = cart.storeId?.let { id ->
+            try {
+                SupabaseApi.fetchStoreById(id)
+            } catch (_: Throwable) {
+                null
+            }
+        }
+    }
     val isStoreClosed = store?.isOpen == false
     val minimumOrder = store?.minOrder ?: 0.0
     val belowMinimum = minimumOrder > 0.0 && cart.subtotal < minimumOrder
     val minimumMissing = (minimumOrder - cart.subtotal).coerceAtLeast(0.0)
     // No Android: deliveryQuoteReady = deliveryType == "RETIRADA" || cart.hasOfficialDeliveryQuote.
-    // No mock a cotação oficial está sempre pronta quando há taxa (fase-rede: vir do backend).
+    // A cotação oficial do backend (quote-delivery) entra na Fase E; por
+    // enquanto vale a taxa da loja já carregada no carrinho.
     val deliveryQuoteReady = cart.deliveryType == DeliveryType.PICKUP || cart.deliveryFee > 0.0
     val isDeliveryUnavailable = store?.let {
         it.deliveryMode.equals("own", ignoreCase = true) && it.hasAvailableDriver == false

@@ -62,13 +62,9 @@ import com.example.shared.theme.ItaSuperTextSecondary
  * `HomeViewModel.kt`; no KMP o estado fica na tela, então o rascunho viaja
  * junto dos diálogos que o consomem.
  *
- * TODO(fase-rede): o fluxo real de GPS (pedido de permissão de localização,
- * leitura da coordenada e geocodificação reversa para rua/número/bairro)
- * ainda é mock na HomeScreen — `LocationProvider` (Fase 5) já existe como
- * expect/actual, mas a permissão é específica de plataforma e a
- * geocodificação reversa ainda não foi ligada.
- * TODO(fase-rede): a busca de CEP ainda é mock — ligar ao ViaCEP via Ktor.
- * TODO(fase-rede): salvar o endereço em `saved_addresses` (Supabase).
+ * Fluxos reais ligados: GPS com permissão + geocodificação reversa
+ * (`LocationProvider.getCurrentAddress`), busca de CEP via ViaCEP e
+ * salvamento do endereço no perfil (`SupabaseApi`), tudo na HomeScreen.
  */
 data class AddressDraft(
     val cep: String = "",

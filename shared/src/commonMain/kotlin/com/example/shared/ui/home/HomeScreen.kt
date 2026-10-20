@@ -144,8 +144,8 @@ import kotlin.math.round
  * Estrutura, textos, ordem, espaçamentos (dp), tamanhos de fonte (sp) e cores
  * reproduzidos literalmente do original. Adaptações KMP documentadas:
  *
- * - Sem ViewModel: estado local (`remember`) + mocks
- *   (`com.example.shared.ui.mock`) com fallback `SupabaseApi.fetchActiveStores()`.
+ * - Sem ViewModel: estado local (`remember`) + dados reais via
+ *   `SupabaseApi` e sessão real (`UserSessionRepository`).
  * - Recursos visuais via composeResources (`Res.drawable.*`, `Res.font.*`):
  *   drawables do app original (ic_ita_*, ic_lucide_*, ic_preview_*, marca)
  *   usados com `painterResource`, iguais aos do Android.

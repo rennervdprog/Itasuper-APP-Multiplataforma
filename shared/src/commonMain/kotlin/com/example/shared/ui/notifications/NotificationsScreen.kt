@@ -72,7 +72,7 @@ import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 
-// TODO(fase-rede): trocar mockNotifications pela busca real via Ktor/SupabaseClient.
+// TODO(Fase E): plugar a busca real de notificações (client-notifications) via SupabaseApi.
 
 private enum class NotificationsFilter(val label: String) {
     ALL("Todos"),

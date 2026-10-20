@@ -17,6 +17,7 @@ import com.example.shared.model.Product
 import com.example.shared.model.PizzaLegacySize
 import com.example.shared.model.SavedAddress
 import com.example.shared.model.Coupon
+import com.example.shared.model.DriverLocation
 import com.example.shared.model.Store
 import com.example.shared.model.StoreOpeningHour
 import com.example.shared.model.StoreSettings
@@ -70,8 +71,9 @@ import kotlin.math.round
  *  (c) auth login/cadastro -> [signIn]/[signUp]
  *  (d) criação de pedido   -> [submitOrder]
  *
- * Apenas a Home (a) está ligada aos dados reais por enquanto; o restante
- * continua com mocks + TODO(fase-rede) nas telas até ser ligado.
+ * Todas as telas principais estão ligadas aos dados reais (lojas, produtos,
+ * auth, pedidos, descoberta, rastreio). Restam as funções da Fase E do mapa
+ * (notificações, cotação oficial, carteira/fidelidade, avaliações).
  */
 
 /** Resultado do catálogo: uma lista vazia pode ser uma resposta operacional válida. */
@@ -2029,6 +2031,30 @@ object SupabaseApi {
     // (f) DESCOBERTA — porte de SupabaseClient.fetchDiscoverProducts,
     // fetchActiveCoupons, fetchStoresWithCoupons e fetchBanners do Android.
     // ------------------------------------------------------------------
+
+    /**
+     * Última localização conhecida do entregador (porte do original:
+     * driver_locations pela mais recente, com o JWT do cliente).
+     * Coordenada inválida/ausente ou falha de rede = null (a tela de
+     * rastreio mantém a última posição boa).
+     */
+    suspend fun fetchDriverLocation(driverUserId: String, accessToken: String): DriverLocation? {
+        if (driverUserId.isBlank() || accessToken.isBlank()) return null
+        val (ok, text) = restGetRaw(
+            "$SUPABASE_URL/rest/v1/driver_locations?driver_user_id=eq.$driverUserId&order=updated_at.desc&limit=1",
+            bearer = accessToken
+        )
+        if (!ok || text.isBlank()) return null
+        val first = parseArray(text).firstOrNull() as? JsonObject ?: return null
+        val latitude = first.optFiniteDouble("latitude") ?: return null
+        val longitude = first.optFiniteDouble("longitude") ?: return null
+        return DriverLocation(
+            driverId = first.optString("driver_user_id"),
+            latitude = latitude,
+            longitude = longitude,
+            updatedAt = first.optString("updated_at")
+        )
+    }
 
     /**
      * Produtos das lojas informadas para a Descoberta (porte fiel do original:

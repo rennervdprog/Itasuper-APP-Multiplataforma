@@ -11,9 +11,9 @@ import com.example.shared.model.PixDirectPaymentUiState
 import com.example.shared.model.PixPaymentUiState
 import com.example.shared.model.Product
 import com.example.shared.model.SelectedAddonItem
+import com.example.shared.model.SavedAddress
 import com.example.shared.network.SupabaseApi
 import com.example.shared.platform.SecureStorage
-import com.example.shared.ui.mock.mockSavedAddresses
 import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -122,6 +122,9 @@ class CartHolder {
         private set
 
     var selectedAddressId by mutableStateOf<String?>(null)
+
+    /** Endereços salvos REAIS do cliente (o checkout preenche via API). */
+    var savedAddresses by mutableStateOf<List<SavedAddress>>(emptyList())
     var paymentMethod by mutableStateOf("PIX Online")
     var needsChange by mutableStateOf(false)
     var changeForAmount by mutableStateOf("")
@@ -436,7 +439,7 @@ class CartHolder {
 
     fun deliveryAddressSummary(): String {
         if (deliveryType == DeliveryType.PICKUP) return "Retirada na loja: $storeName"
-        val address = mockSavedAddresses().firstOrNull { it.id == selectedAddressId }
+        val address = savedAddresses.firstOrNull { it.id == selectedAddressId }
         return address?.let {
             listOf(it.displayLine, it.neighborhood, it.city)
                 .filter { part -> part.isNotBlank() }

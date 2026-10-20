@@ -125,7 +125,8 @@ fun CheckoutScreen(
     }
     val isPickup = cart.deliveryType == DeliveryType.PICKUP
     // No Android: deliveryQuoteReady = RETIRADA || (!isQuotingDelivery && hasOfficialDeliveryQuote).
-    // No mock a cotação oficial está sempre pronta quando há taxa (fase-rede: vir do backend).
+    // A cotação oficial do backend (quote-delivery) entra na Fase E; por
+    // enquanto vale a taxa da loja já carregada no carrinho.
     val isQuotingDelivery = false
     val deliveryQuoteReady = isPickup || (!isQuotingDelivery && cart.deliveryFee > 0.0)
 
@@ -156,6 +157,8 @@ fun CheckoutScreen(
             if (userId.isNotBlank() && accessToken.isNotBlank()) {
                 val addresses = SupabaseApi.fetchSavedAddresses(userId, accessToken)
                 savedAddresses = addresses
+                // Espelha no carrinho: o resumo do pedido usa os endereços reais.
+                cart.savedAddresses = addresses
             }
         } catch (_: Exception) {
             // Mantém lista vazia em caso de erro (sem mocks)
@@ -217,6 +220,7 @@ fun CheckoutScreen(
         } else {
             savedAddresses + updated
         }
+        cart.savedAddresses = savedAddresses
         cart.selectAddress(id)
         showAddressEditor = false
     }

@@ -47,10 +47,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.shared.model.DriverLocation
 import com.example.shared.model.Order
+import com.example.shared.network.SupabaseApi
+import com.example.shared.session.UserSessionRepository
 import com.example.shared.theme.ItaSuperBorder
 import com.example.shared.theme.ItaSuperPrimary
-import com.example.shared.ui.mock.mockDriverLocation
-import com.example.shared.ui.mock.mockOrders
+import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.datetime.Clock
@@ -59,42 +60,56 @@ import kotlinx.datetime.UtcOffset
 import kotlinx.datetime.toInstant
 
 // =============================================================================
-// LIMITAÇÕES KMP DOCUMENTADAS (prévia com mocks; sem backend ainda):
+// LIMITAÇÃO KMP DOCUMENTADA:
 // - Mapa: o original usa WebView + Leaflet (HTML gerado uma vez + updates via
 //   evaluateJavascript). WebView não é portável ao commonMain: aqui há um
 //   placeholder visual (pinos do entregador/cliente) com TODO(mapa-nativo) para
 //   um expect/actual futuro (Android: WebView/Leaflet; iOS: MapKit/Google Maps).
-// - Localização do entregador: o original busca em driver_locations via
-//   SupabaseClient a cada 20s. Aqui mockDriverLocation() com TODO(fase-rede);
-//   a estrutura do polling (LaunchedEffect + delay 20s) foi mantida 1:1.
-// - Sem OrdersViewModel no KMP ainda: o pedido é resolvido da lista passada
-//   (default: mockOrders()). Na fase de rede, virá do estado real de pedidos.
+// Pedido e localização do entregador são REAIS (API): pedidos do cliente via
+// fetchOrdersForClient e driver_locations com polling de 20s, como no original.
 // =============================================================================
-
-// TODO(fase-rede): trocar mockOrders pela lista real de pedidos (estado do app / Ktor).
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeliveryTrackingScreen(
     orderId: String,
-    orders: List<Order> = mockOrders(),
     onBack: () -> Unit
 ) {
+    val session by UserSessionRepository.session.collectAsState()
+    var orders by remember { mutableStateOf<List<Order>>(emptyList()) }
+    LaunchedEffect(session.userId) {
+        if (session.userId.isNotBlank() && session.accessToken.isNotBlank()) {
+            try {
+                orders = SupabaseApi.fetchOrdersForClient(session.userId, session.accessToken)
+            } catch (_: Throwable) {
+                // Sem rede: o pedido não resolve e a tela mostra o carregando.
+            }
+        }
+    }
     val order = remember(orderId, orders) { orders.find { it.id == orderId } }
     var driverLocation by remember { mutableStateOf<DriverLocation?>(null) }
     var isLoading by remember { mutableStateOf(true) }
 
-    // TODO(fase-rede): trocar mockDriverLocation por SupabaseClient.fetchDriverLocation
-    // (tabela driver_locations) via Ktor. Polling de 20s mantido como no original.
-    LaunchedEffect(order?.id) {
+    // Localização do entregador em driver_locations (JWT do cliente), com
+    // polling de 20s igual ao original. Falha mantém a última posição boa.
+    LaunchedEffect(order?.id, order?.driverId) {
         val o = order ?: return@LaunchedEffect
-        // Primeira busca imediata
-        driverLocation = mockDriverLocation(o.id)
         isLoading = false
+        if (o.driverId.isBlank()) return@LaunchedEffect
+        suspend fun fetchLocation() {
+            try {
+                SupabaseApi.fetchDriverLocation(o.driverId, session.accessToken)
+                    ?.let { driverLocation = it }
+            } catch (_: Throwable) {
+                // Mantém a última posição conhecida.
+            }
+        }
+        // Primeira busca imediata
+        fetchLocation()
         // Atualiza a cada 20 segundos
         while (isActive) {
             delay(20_000)
-            mockDriverLocation(o.id)?.let { driverLocation = it }
+            fetchLocation()
         }
     }
 
