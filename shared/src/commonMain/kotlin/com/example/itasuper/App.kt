@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.example.shared.model.Store
 import com.example.shared.network.SupabaseApi
@@ -183,9 +184,24 @@ fun App() {
                         val rendersStoreDetail = trackingOrderId == null &&
                                 storeInfoId == null && storeDetailId != null
                         val contentModifier = if (rendersStoreDetail) {
+                            // calculateStartPadding/EndPadding nao existem no
+                            // Compose Multiplatform — equivalente via Left/Right
+                            // (o app e LTR; em RTL, start/end trocam de lado).
+                            val layoutDirection = LocalLayoutDirection.current
+                            val isRtl = layoutDirection == LayoutDirection.Rtl
+                            val startPad = if (isRtl) {
+                                padding.calculateRightPadding(layoutDirection)
+                            } else {
+                                padding.calculateLeftPadding(layoutDirection)
+                            }
+                            val endPad = if (isRtl) {
+                                padding.calculateLeftPadding(layoutDirection)
+                            } else {
+                                padding.calculateRightPadding(layoutDirection)
+                            }
                             Modifier.fillMaxSize().padding(
-                                start = padding.calculateStartPadding(LocalLayoutDirection.current),
-                                end = padding.calculateEndPadding(LocalLayoutDirection.current),
+                                start = startPad,
+                                end = endPad,
                                 bottom = padding.calculateBottomPadding(),
                                 top = 0.dp
                             )
