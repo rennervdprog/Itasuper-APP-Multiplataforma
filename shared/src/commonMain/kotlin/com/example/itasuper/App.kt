@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.example.shared.model.Store
 import com.example.shared.network.SupabaseApi
+import com.example.shared.platform.PlatformBackHandler
 import com.example.shared.platform.SecureStorage
 import com.example.shared.session.UserSessionRepository
 import com.example.shared.theme.ItaSuperPrimary
@@ -145,6 +146,12 @@ fun App() {
             } else {
                 val placedOrder = cartState.placedOrder
                 if (placedOrder != null) {
+                    // Voltar do sistema na confirmação = voltar ao início
+                    // (mesmo destino do botão da tela; sem isso, fechava o app).
+                    PlatformBackHandler(enabled = true) {
+                        cartState.dismissSuccess()
+                        navigator.navigateTo(AppScreen.HOME)
+                    }
                     // Tela de confirmação ocupa a tela toda (substitui a navegação).
                     OrderSuccessScreen(
                         order = placedOrder,
@@ -207,6 +214,25 @@ fun App() {
                             )
                         } else {
                             Modifier.fillMaxSize().padding(padding)
+                        }
+                        // Botão/gesto Voltar do sistema: anda pra trás DENTRO
+                        // do app, na ordem das telas empilhadas (rastreio →
+                        // sobre a loja → vitrine → checkout → sacola → abas →
+                        // início). Sem isto, o voltar fechava o app de
+                        // qualquer tela. Na tela inicial, o voltar segue
+                        // fechando o app (comportamento normal do Android).
+                        val canNavigateBack = trackingOrderId != null || storeInfoId != null ||
+                                storeDetailId != null || fullScreenCartFlow ||
+                                navigator.currentScreen != AppScreen.HOME
+                        PlatformBackHandler(enabled = canNavigateBack) {
+                            when {
+                                trackingOrderId != null -> navigator.closeTracking()
+                                storeInfoId != null -> navigator.closeStoreInfo()
+                                storeDetailId != null -> navigator.closeStore()
+                                navigator.currentScreen == AppScreen.CHECKOUT ->
+                                    navigator.navigateTo(AppScreen.CART)
+                                else -> navigator.navigateTo(AppScreen.HOME)
+                            }
                         }
                         Box(modifier = contentModifier) {
                             if (trackingOrderId != null) {
