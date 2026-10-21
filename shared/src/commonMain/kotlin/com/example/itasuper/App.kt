@@ -18,6 +18,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.dp
 import com.example.shared.model.Store
 import com.example.shared.network.SupabaseApi
 import com.example.shared.platform.SecureStorage
@@ -173,7 +175,24 @@ fun App() {
                             }
                         }
                     ) { padding ->
-                        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+                        // A vitrine da loja desenha a capa ate o topo da tela
+                        // (atras da status bar), igual ao app original — a faixa
+                        // branca acima da capa era o padding do topo deste
+                        // Scaffold. Pra vitrine, o padding do topo nao se aplica;
+                        // as demais telas seguem com o padding normal.
+                        val rendersStoreDetail = trackingOrderId == null &&
+                                storeInfoId == null && storeDetailId != null
+                        val contentModifier = if (rendersStoreDetail) {
+                            Modifier.fillMaxSize().padding(
+                                start = padding.calculateStartPadding(LocalLayoutDirection.current),
+                                end = padding.calculateEndPadding(LocalLayoutDirection.current),
+                                bottom = padding.calculateBottomPadding(),
+                                top = 0.dp
+                            )
+                        } else {
+                            Modifier.fillMaxSize().padding(padding)
+                        }
+                        Box(modifier = contentModifier) {
                             if (trackingOrderId != null) {
                                 // Rastreio da entrega (a partir do pedido em andamento).
                                 DeliveryTrackingScreen(

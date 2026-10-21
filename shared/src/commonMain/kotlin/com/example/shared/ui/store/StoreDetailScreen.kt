@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -867,7 +868,10 @@ private fun StoreStickyMenuHeader(
         shadowElevation = 0.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
+        // A barra fixa cobre o topo inteiro (inclusive atras da status bar,
+        // que fica branca com o relogio visivel); o conteudo desce via
+        // statusBarsPadding pra nao ficar sob o relogio.
+        Column(modifier = Modifier.fillMaxWidth().statusBarsPadding()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1110,8 +1114,10 @@ private fun StoreShowcaseHeader(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    // statusBarsPadding removido: o Scaffold raiz do App() ja aplica
-                    // o inset da status bar; manter aqui duplicava o espaco no topo.
+                    // Igual ao app original: a capa vai ate o topo da tela
+                    // (atras da status bar) e os botoes flutuam sobre a foto,
+                    // abaixo do relogio, via statusBarsPadding.
+                    .statusBarsPadding()
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
