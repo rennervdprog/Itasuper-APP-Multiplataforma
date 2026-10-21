@@ -169,6 +169,50 @@ object SupabaseApi {
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    /**
+     * Porte do `SupabaseClient.onUnauthorized` do app original (Fase 4/C2):
+     * chamado quando uma chamada autenticada retorna 401 (token expirado).
+     * Deve renovar a sessão e retornar o NOVO access token, ou null se falhar.
+     * Configurado pela camada de UI no início do app (App.kt). Executado no
+     * máximo 1x por chamada.
+     */
+    var onUnauthorized: (suspend () -> String?)? = null
+
+    /**
+     * Executa a chamada REST; se retornar 401 com token de usuário, renova a
+     * sessão via [onUnauthorized] e repete a chamada UMA vez com o token novo
+     * (porte do `executeWithTokenRefresh` do app original). Chamadas com a
+     * anon key (públicas) nunca disparam renovação.
+     */
+    private suspend fun executeRest(
+        bearer: String,
+        call: suspend (String) -> Pair<Int, String>
+    ): Pair<Boolean, String> {
+        val (status, text) = call(bearer)
+        if (status == 401 && bearer != SUPABASE_ANON_KEY) {
+            val newToken = try {
+                onUnauthorized?.invoke()
+            } catch (_: Exception) {
+                null
+            }
+            if (!newToken.isNullOrBlank() && newToken != bearer) {
+                val (status2, text2) = call(newToken)
+                return (status2 in 200..299) to text2
+            }
+        }
+        return (status in 200..299) to text
+    }
+
+    /** Renovação pontual para chamadas fora dos helpers REST (quote, upload). */
+    private suspend fun refreshTokenForRetry(currentToken: String): String? {
+        val newToken = try {
+            onUnauthorized?.invoke()
+        } catch (_: Exception) {
+            null
+        }
+        return newToken?.takeIf { it.isNotBlank() && it != currentToken }
+    }
+
     // ------------------------------------------------------------------
     // Helpers de parsing (estilo opt* do app Android, sobre JsonObject)
     // ------------------------------------------------------------------
@@ -247,15 +291,17 @@ object SupabaseApi {
     // ------------------------------------------------------------------
 
     private suspend fun restGetRaw(url: String, bearer: String = SUPABASE_ANON_KEY): Pair<Boolean, String> {
-        return try {
-            val response: HttpResponse = client.get(url) {
-                header("apikey", SUPABASE_ANON_KEY)
-                header("Authorization", "Bearer $bearer")
-                header("Accept", "application/json")
+        return executeRest(bearer) { token ->
+            try {
+                val response: HttpResponse = client.get(url) {
+                    header("apikey", SUPABASE_ANON_KEY)
+                    header("Authorization", "Bearer $token")
+                    header("Accept", "application/json")
+                }
+                response.status.value to response.bodyAsText()
+            } catch (_: Exception) {
+                -1 to ""
             }
-            response.status.isSuccess() to response.bodyAsText()
-        } catch (_: Exception) {
-            false to ""
         }
     }
 
@@ -265,18 +311,20 @@ object SupabaseApi {
         bearer: String = SUPABASE_ANON_KEY,
         prefer: String? = null
     ): Pair<Boolean, String> {
-        return try {
-            val response: HttpResponse = client.post(url) {
-                header("apikey", SUPABASE_ANON_KEY)
-                header("Authorization", "Bearer $bearer")
-                header("Accept", "application/json")
-                if (prefer != null) header("Prefer", prefer)
-                contentType(ContentType.Application.Json)
-                setBody(bodyJson)
+        return executeRest(bearer) { token ->
+            try {
+                val response: HttpResponse = client.post(url) {
+                    header("apikey", SUPABASE_ANON_KEY)
+                    header("Authorization", "Bearer $token")
+                    header("Accept", "application/json")
+                    if (prefer != null) header("Prefer", prefer)
+                    contentType(ContentType.Application.Json)
+                    setBody(bodyJson)
+                }
+                response.status.value to response.bodyAsText()
+            } catch (_: Exception) {
+                -1 to ""
             }
-            response.status.isSuccess() to response.bodyAsText()
-        } catch (_: Exception) {
-            false to ""
         }
     }
 
@@ -286,18 +334,20 @@ object SupabaseApi {
         bearer: String = SUPABASE_ANON_KEY,
         prefer: String? = null
     ): Pair<Boolean, String> {
-        return try {
-            val response: HttpResponse = client.patch(url) {
-                header("apikey", SUPABASE_ANON_KEY)
-                header("Authorization", "Bearer $bearer")
-                header("Accept", "application/json")
-                if (prefer != null) header("Prefer", prefer)
-                contentType(ContentType.Application.Json)
-                setBody(bodyJson)
+        return executeRest(bearer) { token ->
+            try {
+                val response: HttpResponse = client.patch(url) {
+                    header("apikey", SUPABASE_ANON_KEY)
+                    header("Authorization", "Bearer $token")
+                    header("Accept", "application/json")
+                    if (prefer != null) header("Prefer", prefer)
+                    contentType(ContentType.Application.Json)
+                    setBody(bodyJson)
+                }
+                response.status.value to response.bodyAsText()
+            } catch (_: Exception) {
+                -1 to ""
             }
-            response.status.isSuccess() to response.bodyAsText()
-        } catch (_: Exception) {
-            false to ""
         }
     }
 
@@ -306,16 +356,18 @@ object SupabaseApi {
         bearer: String = SUPABASE_ANON_KEY,
         prefer: String? = null
     ): Pair<Boolean, String> {
-        return try {
-            val response: HttpResponse = client.delete(url) {
-                header("apikey", SUPABASE_ANON_KEY)
-                header("Authorization", "Bearer $bearer")
-                header("Accept", "application/json")
-                if (prefer != null) header("Prefer", prefer)
+        return executeRest(bearer) { token ->
+            try {
+                val response: HttpResponse = client.delete(url) {
+                    header("apikey", SUPABASE_ANON_KEY)
+                    header("Authorization", "Bearer $token")
+                    header("Accept", "application/json")
+                    if (prefer != null) header("Prefer", prefer)
+                }
+                response.status.value to response.bodyAsText()
+            } catch (_: Exception) {
+                -1 to ""
             }
-            response.status.isSuccess() to response.bodyAsText()
-        } catch (_: Exception) {
-            false to ""
         }
     }
 
@@ -1764,15 +1816,33 @@ object SupabaseApi {
             }
             val normalizedExtension = extension.lowercase().ifBlank { "jpg" }
             val path = "$storeId/$orderId.$normalizedExtension"
-            val uploadResponse: HttpResponse = client.post("$SUPABASE_URL/storage/v1/object/pix-proofs/$path") {
-                header("apikey", SUPABASE_ANON_KEY)
-                header("Authorization", "Bearer $accessToken")
-                header("x-upsert", "true")
-                contentType(ContentType.parse(mimeType))
-                setBody(bytes)
+            suspend fun doUpload(token: String): Pair<Int, String> {
+                val r: HttpResponse = client.post("$SUPABASE_URL/storage/v1/object/pix-proofs/$path") {
+                    header("apikey", SUPABASE_ANON_KEY)
+                    header("Authorization", "Bearer $token")
+                    header("x-upsert", "true")
+                    contentType(ContentType.parse(mimeType))
+                    setBody(bytes)
+                }
+                return r.status.value to r.bodyAsText()
             }
-            val uploadBody = uploadResponse.bodyAsText()
-            if (!uploadResponse.status.isSuccess()) {
+            var effectiveToken = accessToken
+            var uploadStatus: Int
+            var uploadBody: String
+            val firstUpload = doUpload(accessToken)
+            uploadStatus = firstUpload.first
+            uploadBody = firstUpload.second
+            if (uploadStatus == 401) {
+                // Token expirado: renova 1x e repete (executeWithTokenRefresh do original).
+                val newToken = refreshTokenForRetry(accessToken)
+                if (newToken != null) {
+                    effectiveToken = newToken
+                    val retryUpload = doUpload(newToken)
+                    uploadStatus = retryUpload.first
+                    uploadBody = retryUpload.second
+                }
+            }
+            if (uploadStatus !in 200..299) {
                 return Result.failure(
                     IllegalStateException(parseErrorMessage(uploadBody, "Não foi possível enviar o comprovante."))
                 )
@@ -1784,13 +1854,13 @@ object SupabaseApi {
             val (attachOk, attachBody) = restPostRaw(
                 "$SUPABASE_URL/rest/v1/rpc/attach_pix_proof",
                 attachJson,
-                accessToken
+                effectiveToken
             )
             if (!attachOk) {
                 runCatching {
                     client.delete("$SUPABASE_URL/storage/v1/object/pix-proofs/$path") {
                         header("apikey", SUPABASE_ANON_KEY)
-                        header("Authorization", "Bearer $accessToken")
+                        header("Authorization", "Bearer $effectiveToken")
                     }
                 }
                 return Result.failure(
@@ -2727,21 +2797,37 @@ object SupabaseApi {
                     putStr("cep", address.normalizedCep())
                 })
             }.toString()
-            val response: HttpResponse = client.post("$SUPABASE_URL/functions/v1/quote-delivery") {
-                header("apikey", SUPABASE_ANON_KEY)
-                header("Authorization", "Bearer $accessToken")
-                contentType(ContentType.Application.Json)
-                setBody(body)
+            suspend fun doPost(token: String): Pair<Int, String> {
+                val r: HttpResponse = client.post("$SUPABASE_URL/functions/v1/quote-delivery") {
+                    header("apikey", SUPABASE_ANON_KEY)
+                    header("Authorization", "Bearer $token")
+                    contentType(ContentType.Application.Json)
+                    setBody(body)
+                }
+                return r.status.value to r.bodyAsText()
             }
-            val text = response.bodyAsText()
+            var statusValue: Int
+            var text: String
+            val firstQuote = doPost(accessToken)
+            statusValue = firstQuote.first
+            text = firstQuote.second
+            if (statusValue == 401) {
+                // Token expirado: renova 1x e repete (executeWithTokenRefresh do original).
+                val newToken = refreshTokenForRetry(accessToken)
+                if (newToken != null) {
+                    val retryQuote = doPost(newToken)
+                    statusValue = retryQuote.first
+                    text = retryQuote.second
+                }
+            }
             val payload = try {
                 json.parseToJsonElement(text).jsonObject
             } catch (_: Exception) {
                 null
             }
-            if (!response.status.isSuccess() || payload == null || !payload.optBoolean("ok", false)) {
+            if (statusValue !in 200..299 || payload == null || !payload.optBoolean("ok", false)) {
                 val reason = when {
-                    response.status.value == 401 || response.status.value == 403 -> "unauthorized"
+                    statusValue == 401 || statusValue == 403 -> "unauthorized"
                     else -> payload?.optNullableString("reason") ?: "quote_unreachable"
                 }
                 val distance = payload?.get("distance") as? JsonObject

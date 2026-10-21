@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.example.shared.platform.LocationProvider
 import com.example.shared.platform.PushNotifications
+import com.example.shared.session.UserSessionRepository
 import com.example.shared.ui.permissions.PlatformPermissions
 
 class MainActivity : ComponentActivity() {
@@ -30,5 +31,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             App()
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Igual ao app original: ao voltar pro app, renova o token da sessão
+        // (o token vence em ~1h; sem renovar, Pedidos/Avisos param de atualizar).
+        UserSessionRepository.refreshSession()
     }
 }

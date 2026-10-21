@@ -66,7 +66,19 @@ fun App() {
     // abertura e sincronizada com o perfil remoto, como no app original.
     // A restauração roda ANTES do primeiro frame decidir a tela — sem isso, a
     // abertura piscava a tela de login e só depois "percebia" o login salvo.
-    remember { UserSessionRepository.initialize() }
+    remember {
+        // Fase 4 (C2) do app original: quando a API retornar 401 (token
+        // expirado), a camada de rede renova a sessão e repete a chamada 1x.
+        // Sem essa ligação, Pedidos e Avisos paravam de atualizar ~1h depois
+        // do login, porque o token vencia e ninguém renovava.
+        SupabaseApi.onUnauthorized = { UserSessionRepository.refreshAccessToken() }
+        UserSessionRepository.initialize()
+        // Equivalente ao refreshSession do onResume do original, na abertura:
+        // renova o token restaurado (que pode ter vencido com o app fechado).
+        if (UserSessionRepository.current.isLoggedIn) {
+            UserSessionRepository.refreshSession()
+        }
+    }
     val session by UserSessionRepository.session.collectAsState()
     val isLoggedIn = session.isLoggedIn
     // ITEM 5/6 — gate de aceite dos Termos/Privacidade (espelha o MainActivity do

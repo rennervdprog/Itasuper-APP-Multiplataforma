@@ -209,6 +209,25 @@ object UserSessionRepository {
     }
 
     /**
+     * Porte do `refreshSession()` do original (chamado no onResume e na
+     * abertura): renova o access token via refresh token e sincroniza o
+     * perfil em seguida. Sem refresh token, só sincroniza o perfil.
+     * Refresh que falha NÃO desloga (regra do original).
+     */
+    fun refreshSession() {
+        val currentSession = _session.value
+        if (!currentSession.isLoggedIn) return
+        if (currentSession.refreshToken.isBlank()) {
+            scope.launch { synchronizeProfileFromRemote() }
+            return
+        }
+        scope.launch {
+            refreshAccessToken()
+            synchronizeProfileFromRemote()
+        }
+    }
+
+    /**
      * Busca o perfil remoto e faz merge na sessão (remoto vazio não apaga o
      * local). Chamado na abertura do app (equivalente ao refreshSession +
      * synchronizeProfile do onResume do original).
