@@ -97,6 +97,7 @@ import com.example.shared.model.Product
 import com.example.shared.model.ProductAddonsPayload
 import com.example.shared.model.SelectedAddonItem
 import com.example.shared.model.Store
+import com.example.shared.model.StoreRatingAggregate
 import com.example.shared.network.SupabaseApi
 import com.example.shared.session.FavoriteStoresRepository
 import com.example.shared.theme.ItaSuperPrimary
@@ -175,6 +176,18 @@ fun StoreDetailScreen(
             }
         }
         isLoadingStore = false
+    }
+
+    // Agregado de avaliações (fonte da verdade p/ nota + contagem na página
+    // da loja) — igual ao app original: sem ele, a vitrine mostrava "★ Novo"
+    // até pra loja com avaliação (a Doceria tem 5,0 de 1 avaliação).
+    var ratingAgg by remember(storeId) { mutableStateOf<StoreRatingAggregate?>(null) }
+    LaunchedEffect(storeId) {
+        ratingAgg = try {
+            SupabaseApi.getStoreRatingAggregate(storeId)
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     // Disponibilidade de entrega (só entrega própria): consulta a RPC uma
@@ -540,6 +553,7 @@ fun StoreDetailScreen(
                 item {
                     StoreShowcaseHeader(
                         store = store,
+                        ratingAgg = ratingAgg,
                         onBackClick = onBackClick,
                         onContactClick = { /* TODO(fase-rede): abrir WhatsApp */ },
                         onOpenMaps = { /* TODO(fase-rede): abrir mapa */ },
@@ -1078,6 +1092,7 @@ private fun StoreMenuFilterPill(label: String, selected: Boolean, onClick: () ->
 @Composable
 private fun StoreShowcaseHeader(
     store: Store,
+    ratingAgg: StoreRatingAggregate? = null,
     onBackClick: () -> Unit,
     onContactClick: () -> Unit,
     onOpenMaps: () -> Unit,
@@ -1242,10 +1257,19 @@ private fun StoreShowcaseHeader(
                         .padding(vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val ratingText = if (store.rating > 0) {
-                        "★ ${formatOneDecimal(store.rating)}"
-                    } else {
-                        "★ Novo"
+                    // Igual ao app original: o agregado manda (nota + contagem);
+                    // sem agregado carregado, cai pra nota da loja; zero = Novo.
+                    val aggCount = ratingAgg?.reviewCount ?: -1
+                    val ratingText = when {
+                        aggCount > 0 -> {
+                            val avgStr = formatOneDecimal(ratingAgg?.avgRating ?: 0.0)
+                            val plural = if (aggCount == 1) "avaliação" else "avaliações"
+                            "★ $avgStr ($aggCount $plural)"
+                        }
+                        aggCount == 0 -> "★ Novo"
+                        else -> {
+                            if (store.rating > 0) "★ ${formatOneDecimal(store.rating)}" else "★ Novo"
+                        }
                     }
                     Text(
                         text = ratingText,
