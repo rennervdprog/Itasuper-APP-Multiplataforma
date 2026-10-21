@@ -24,7 +24,11 @@ import androidx.compose.ui.unit.dp
 import com.example.shared.model.Store
 import com.example.shared.network.SupabaseApi
 import com.example.shared.platform.PlatformBackHandler
+import com.example.shared.platform.PushNavigation
+import com.example.shared.platform.PushRegistration
 import com.example.shared.platform.SecureStorage
+import com.example.shared.platform.rememberUrlOpener
+import com.example.shared.util.urlEncodeComponent
 import com.example.shared.session.UserSessionRepository
 import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ItaSuperTheme
@@ -93,6 +97,22 @@ fun App() {
     LaunchedEffect(legalSession) {
         val session = legalSession ?: return@LaunchedEffect
         legalConsentState.checkForUpdates(session)
+    }
+    // Push real: com a sessão ativa, registra o aparelho no backend (token FCM)
+    // — igual ao registerCurrentDevice do app original após o login.
+    LaunchedEffect(session.userId, session.accessToken) {
+        if (session.isLoggedIn && session.accessToken.isNotBlank()) {
+            PushRegistration.syncAsync()
+        }
+    }
+    // Push real: toque numa notificação abre o pedido (Pedidos + rastreio).
+    val pendingPushOrderId by PushNavigation.pendingOrderId.collectAsState()
+    LaunchedEffect(pendingPushOrderId, isLoggedIn) {
+        val orderId = pendingPushOrderId ?: return@LaunchedEffect
+        if (!isLoggedIn) return@LaunchedEffect
+        PushNavigation.consume()
+        navigator.navigateTo(AppScreen.ORDERS)
+        navigator.openTracking(orderId)
     }
     ItaSuperTheme {
         if (!session.isSessionRestored) {
@@ -249,9 +269,23 @@ fun App() {
                                 }
                                 val loadedInfoStore = infoStore
                                 if (loadedInfoStore != null) {
+                                    val openUrl = rememberUrlOpener()
                                     StoreInfoScreen(
                                         store = loadedInfoStore,
-                                        onBackClick = { navigator.closeStoreInfo() }
+                                        onBackClick = { navigator.closeStoreInfo() },
+                                        onOpenMap = {
+                                            // Igual ao original: abre o endereço no mapa.
+                                            val mapQuery = loadedInfoStore.address.takeIf { it.isNotBlank() }
+                                                ?: listOfNotNull(
+                                                    loadedInfoStore.addressStreet.takeIf { it.isNotBlank() },
+                                                    loadedInfoStore.addressNumber.takeIf { it.isNotBlank() },
+                                                    loadedInfoStore.addressNeighborhood.takeIf { it.isNotBlank() },
+                                                    loadedInfoStore.addressCity.takeIf { it.isNotBlank() }
+                                                ).joinToString(", ")
+                                            if (mapQuery.isNotBlank()) {
+                                                openUrl("geo:0,0?q=${urlEncodeComponent(mapQuery)}")
+                                            }
+                                        }
                                     )
                                 } else {
                                     Box(
@@ -285,6 +319,7 @@ fun App() {
                                         onStoreClick = { navigator.openStore(it) },
                                         onProductClick = { p -> navigator.openStore(p.storeId, p.id) },
                                         onCartClick = { navigator.navigateTo(AppScreen.CART) },
+                                        onOrdersClick = { navigator.navigateTo(AppScreen.ORDERS) },
                                         cartItemCount = cartState.totalItemCount,
                                         cart = cartState
                                     )

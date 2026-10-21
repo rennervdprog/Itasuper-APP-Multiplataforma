@@ -99,7 +99,9 @@ import com.example.shared.model.SelectedAddonItem
 import com.example.shared.model.Store
 import com.example.shared.model.StoreRatingAggregate
 import com.example.shared.network.SupabaseApi
+import com.example.shared.platform.rememberUrlOpener
 import com.example.shared.session.FavoriteStoresRepository
+import com.example.shared.util.urlEncodeComponent
 import com.example.shared.theme.ItaSuperPrimary
 import com.example.shared.theme.ItaSuperSecondary
 import com.example.shared.theme.ItaSuperTextPrimary
@@ -398,6 +400,8 @@ fun StoreDetailScreen(
 
     val menuListState = rememberLazyListState()
     val menuScrollScope = rememberCoroutineScope()
+    // WhatsApp e mapa da loja (botões do cabeçalho) — porte do original.
+    val openUrl = rememberUrlOpener()
 
     val isPharmacyStore = store.category.equals("farmacias", ignoreCase = true) ||
         store.secondaryCategories.any { it.equals("farmacias", ignoreCase = true) }
@@ -555,8 +559,26 @@ fun StoreDetailScreen(
                         store = store,
                         ratingAgg = ratingAgg,
                         onBackClick = onBackClick,
-                        onContactClick = { /* TODO(fase-rede): abrir WhatsApp */ },
-                        onOpenMaps = { /* TODO(fase-rede): abrir mapa */ },
+                        onContactClick = {
+                            // Igual ao original: WhatsApp da loja via wa.me.
+                            val phone = store.whatsapp.filter { it.isDigit() }
+                            if (phone.isNotBlank()) {
+                                openUrl("https://wa.me/$phone")
+                            }
+                        },
+                        onOpenMaps = {
+                            // Igual ao original: busca o endereço da loja no mapa.
+                            val mapQuery = store.address.takeIf { it.isNotBlank() }
+                                ?: listOfNotNull(
+                                    store.addressStreet.takeIf { it.isNotBlank() },
+                                    store.addressNumber.takeIf { it.isNotBlank() },
+                                    store.addressNeighborhood.takeIf { it.isNotBlank() },
+                                    store.addressCity.takeIf { it.isNotBlank() }
+                                ).joinToString(", ")
+                            if (mapQuery.isNotBlank()) {
+                                openUrl("geo:0,0?q=${urlEncodeComponent(mapQuery)}")
+                            }
+                        },
                         onInfoClick = onNavigateToInfo,
                         isFavorite = isFavorite,
                         onFavoriteClick = { FavoriteStoresRepository.toggleFavorite(storeId) }
@@ -882,10 +904,11 @@ private fun StoreStickyMenuHeader(
         shadowElevation = 0.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
-        // A barra fixa cobre o topo inteiro (inclusive atras da status bar,
-        // que fica branca com o relogio visivel); o conteudo desce via
-        // statusBarsPadding pra nao ficar sob o relogio.
-        Column(modifier = Modifier.fillMaxWidth().statusBarsPadding()) {
+        // Igual ao original: a barra fixa NÃO leva statusBarsPadding — quem
+        // posiciona o conteúdo abaixo da status bar é a cadeia de insets da
+        // tela. Um statusBarsPadding aqui somava uma faixa branca extra no
+        // topo quando a barra aparecia (apontado pelo Renner em 2026-10-21).
+        Column(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

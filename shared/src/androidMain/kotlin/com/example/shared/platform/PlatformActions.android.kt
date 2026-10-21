@@ -34,6 +34,26 @@ actual fun rememberTextSharer(): (text: String, title: String?) -> Boolean {
 }
 
 /**
+ * Android: Intent ACTION_VIEW (igual ao app original nos botões de
+ * WhatsApp e mapa da loja).
+ */
+@Composable
+actual fun rememberUrlOpener(): (url: String) -> Boolean {
+    val context = LocalContext.current
+    return remember(context) {
+        { url: String ->
+            runCatching {
+                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+                true
+            }.getOrDefault(false)
+        }
+    }
+}
+
+/**
  * Android: ActivityResultContracts.OpenDocument (igual ao app original).
  * Lê os bytes via ContentResolver; extensão derivada do MIME
  * (jpeg→jpg, png→png, pdf→pdf).

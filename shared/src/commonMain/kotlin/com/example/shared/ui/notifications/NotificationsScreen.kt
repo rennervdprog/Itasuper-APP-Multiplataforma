@@ -646,7 +646,9 @@ private fun daysFromCivil(year: Int, month: Int, day: Int): Long {
     } else {
         month
     }
-    val era = if (y >= 0) y else y - 399
+    // Era de 400 anos do algoritmo de Hinnant: faltava o `/ 400` — sem ele o
+    // ano saía ~400x maior (notificações apareciam em 2032+). Corrigido.
+    val era = (if (y >= 0) y else y - 399) / 400
     val yoe = y - era * 400
     val mp = m - 3
     val doy = (153 * mp + 2) / 5 + day - 1

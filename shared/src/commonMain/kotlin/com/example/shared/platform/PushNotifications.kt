@@ -1,12 +1,22 @@
 package com.example.shared.platform
 
 /**
- * Notificações push — expect/actual (Fase 5).
+ * Notificações push — expect/actual.
  *
- * Android: usa Firebase Cloud Messaging (mesmo backend do app nativo).
- * iOS: stub — loga TODO (push nativo no iOS fica para uma fase futura).
+ * Android: Firebase Cloud Messaging (mesmo projeto e mesmo backend do app
+ * nativo). iOS: stub — push nativo no iOS fica para quando houver conta
+ * Apple Developer (APNs).
  */
 expect object PushNotifications {
+
+    /**
+     * Inicializa o provedor com o contexto da aplicação.
+     * No Android passe `android.content.Context`; no iOS é ignorado.
+     * No Android também inicializa o Firebase manualmente (ver o actual):
+     * este app roda com applicationId provisório, sem google-services.json
+     * próprio.
+     */
+    fun init(appContext: Any?)
 
     /**
      * Registra o app para receber push (inicializa o provedor da plataforma).

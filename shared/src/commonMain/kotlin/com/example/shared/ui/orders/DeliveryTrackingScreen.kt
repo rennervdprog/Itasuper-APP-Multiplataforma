@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import com.example.shared.model.DriverLocation
 import com.example.shared.model.Order
 import com.example.shared.network.SupabaseApi
+import com.example.shared.platform.TrackingMapView
 import com.example.shared.session.UserSessionRepository
 import com.example.shared.theme.ItaSuperBorder
 import com.example.shared.theme.ItaSuperPrimary
@@ -60,11 +61,10 @@ import kotlinx.datetime.UtcOffset
 import kotlinx.datetime.toInstant
 
 // =============================================================================
-// LIMITAÇÃO KMP DOCUMENTADA:
-// - Mapa: o original usa WebView + Leaflet (HTML gerado uma vez + updates via
-//   evaluateJavascript). WebView não é portável ao commonMain: aqui há um
-//   placeholder visual (pinos do entregador/cliente) com TODO(mapa-nativo) para
-//   um expect/actual futuro (Android: WebView/Leaflet; iOS: MapKit/Google Maps).
+// Mapa REAL (portado em 2026-10-21): WebView + Leaflet igual ao original —
+// HTML gerado uma vez (trackingMapHtml) e posição do entregador atualizada
+// via window.updateDriver, através do expect/actual TrackingMapView
+// (Android: WebView; iOS: WKWebView). Antes era um desenho placeholder.
 // Pedido e localização do entregador são REAIS (API): pedidos do cliente via
 // fetchOrdersForClient e driver_locations com polling de 20s, como no original.
 // =============================================================================
@@ -210,9 +210,20 @@ fun DeliveryTrackingScreen(
                             CircularProgressIndicator(color = ItaSuperPrimary)
                         }
                     } else {
-                        TrackingMapPlaceholder(
-                            driverLocation = driverLocation,
-                            hasClientPosition = order.clientLatitude != null && order.clientLongitude != null
+                        // Mapa real (WebView + Leaflet, igual ao original):
+                        // HTML gerado uma vez com o pino do cliente; o pino do
+                        // entregador é criado/atualizado via updateDriver.
+                        val mapHtml = remember(order.id) {
+                            trackingMapHtml(
+                                clientLat = order.clientLatitude,
+                                clientLng = order.clientLongitude
+                            )
+                        }
+                        TrackingMapView(
+                            html = mapHtml,
+                            driverLatitude = driverLocation?.latitude,
+                            driverLongitude = driverLocation?.longitude,
+                            modifier = Modifier.fillMaxSize()
                         )
                     }
                 }
@@ -223,100 +234,69 @@ fun DeliveryTrackingScreen(
 }
 
 /**
- * Placeholder visual do mapa de rastreio (mesmas dimensões do original: 420.dp).
- * Pino azul do entregador e pino verde do cliente, nas cores do HTML Leaflet original.
+ * HTML do mapa de rastreio — porte fiel do trackingMapHtml do app original
+ * (WebView + Leaflet/OpenStreetMap). Só o pino do cliente ("Você") nasce no
+ * HTML; o pino do entregador é criado e movido por window.updateDriver a
+ * cada atualização de posição (evita pino duplicado/congelado).
+ * Regra do produto: NUNCA mostrar pino da loja — só entregador e cliente.
  */
-// TODO(mapa-nativo): substituir por expect/actual nativo — Android: WebView + Leaflet como no
-// original (HTML gerado uma vez, updates via evaluateJavascript); iOS: MapKit/Google Maps.
-@Composable
-private fun TrackingMapPlaceholder(
-    driverLocation: DriverLocation?,
-    hasClientPosition: Boolean
-) {
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxSize()
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFFE9F1E5))
-            .border(1.dp, ItaSuperBorder, RoundedCornerShape(16.dp))
-    ) {
-        val w = maxWidth
-        val h = maxHeight
-        // "Ruas" estilizadas para sugerir o mapa
-        Box(
-            modifier = Modifier
-                .offset(x = w * 0.08f, y = h * 0.42f)
-                .width(w * 0.84f)
-                .height(12.dp)
-                .background(Color.White.copy(alpha = 0.85f))
-        )
-        Box(
-            modifier = Modifier
-                .offset(x = w * 0.55f, y = h * 0.06f)
-                .width(12.dp)
-                .height(h * 0.88f)
-                .background(Color.White.copy(alpha = 0.85f))
-        )
-        if (driverLocation != null) {
-            MapPin(
-                modifier = Modifier.offset(x = w * 0.20f, y = h * 0.24f),
-                backgroundColor = Color(0xFF2563EB),
-                label = "Entregador"
-            ) {
-                Icon(Icons.Filled.Motorcycle, null, tint = Color.White, modifier = Modifier.size(22.dp))
-            }
-        }
-        if (hasClientPosition) {
-            MapPin(
-                modifier = Modifier.offset(x = w * 0.62f, y = h * 0.58f),
-                backgroundColor = Color(0xFF16A34A),
-                label = "Você"
-            ) {
-                Icon(Icons.Filled.LocationOn, null, tint = Color.White, modifier = Modifier.size(22.dp))
-            }
-        }
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(12.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(Color(0xFF262626).copy(alpha = 0.78f))
-                .padding(horizontal = 14.dp, vertical = 8.dp)
-        ) {
-            Text(
-                "Mapa interativo em breve",
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White,
-                fontWeight = FontWeight.Bold
-            )
+private fun trackingMapHtml(
+    clientLat: Double?,
+    clientLng: Double?
+): String {
+    val centerLat = clientLat ?: -22.5
+    val centerLng = clientLng ?: -48.5
+    val markers = buildString {
+        if (clientLat != null && clientLng != null) {
+            append("L.marker([$clientLat, $clientLng], {icon: homeIcon}).addTo(map).bindPopup('Você');")
         }
     }
-}
-
-@Composable
-private fun MapPin(
-    modifier: Modifier = Modifier,
-    backgroundColor: Color,
-    label: String,
-    content: @Composable () -> Unit
-) {
-    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(backgroundColor)
-                .border(3.dp, Color.White, CircleShape),
-            contentAlignment = Alignment.Center
-        ) { content() }
-        Spacer(Modifier.height(2.dp))
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            color = Color(0xFF414141),
-            fontWeight = FontWeight.Bold
-        )
-    }
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+html, body { margin: 0; padding: 0; height: 100%; }
+#map { height: 420px; width: 100%; }
+.driver-pin { width: 40px; height: 40px; background: #2563eb; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 20px;
+  border: 3px solid white; box-shadow: 0 4px 12px rgba(37,99,235,0.5); }
+.home-pin { width: 36px; height: 36px; background: #16a34a; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 18px;
+  border: 3px solid white; box-shadow: 0 3px 10px rgba(22,163,74,0.4); }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+var map = L.map('map').setView([$centerLat, $centerLng], 14);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+var driverIcon = L.divIcon({ html: '<div class="driver-pin">\uD83C\uDFCD\uFE0F</div>', className: '', iconSize: [40, 40], iconAnchor: [20, 20] });
+var homeIcon = L.divIcon({ html: '<div class="home-pin">\uD83C\uDFE0</div>', className: '', iconSize: [36, 36], iconAnchor: [18, 18] });
+$markers
+// Recalcula o tamanho do mapa apos o layout assentar (fix para WebView)
+var _tries = 0;
+var _timer = setInterval(function() {
+  map.invalidateSize();
+  if (++_tries >= 20) clearInterval(_timer);
+}, 150);
+// Atualiza a posicao do entregador sem recarregar o mapa
+var driverMarker = null;
+window.updateDriver = function(lat, lng) {
+  if (driverMarker == null) {
+    driverMarker = L.marker([lat, lng], {icon: driverIcon}).addTo(map).bindPopup('Entregador');
+  } else {
+    driverMarker.setLatLng([lat, lng]);
+  }
+  map.panTo([lat, lng]);
+};
+</script>
+</body>
+</html>
+""".trimIndent()
 }
 
 /**

@@ -2468,6 +2468,33 @@ object SupabaseApi {
         return ok
     }
 
+    /**
+     * Registra o token FCM deste aparelho na conta logada — porte de
+     * PushNotificationManager.registerFcmToken do app original: POST na edge
+     * function register-push-device com { fcm_token, device_info } e o JWT do
+     * usuário. Sem esse registro o servidor não tem pra onde mandar o push
+     * (era o que faltava: a função existia no original e nunca foi chamada
+     * neste app). Retorna true se o servidor aceitou.
+     */
+    suspend fun registerPushDevice(accessToken: String, fcmToken: String, deviceInfo: String): Boolean {
+        if (accessToken.isBlank() || fcmToken.isBlank()) return false
+        return try {
+            val body = buildJsonObject {
+                putStr("fcm_token", fcmToken)
+                putStr("device_info", deviceInfo)
+            }.toString()
+            val response: HttpResponse = client.post("$SUPABASE_URL/functions/v1/register-push-device") {
+                header("apikey", SUPABASE_ANON_KEY)
+                header("Authorization", "Bearer $accessToken")
+                contentType(ContentType.Application.Json)
+                setBody(body)
+            }
+            response.status.isSuccess()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     // ------------------------------------------------------------------
     // (h) AÇÕES DO PEDIDO, AVALIAÇÕES, CARTEIRA/FIDELIDADE E COTAÇÃO —
     // porte de SupabaseClient do Android (callOrderRpc, submitOrderRating,

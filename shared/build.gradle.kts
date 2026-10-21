@@ -56,6 +56,8 @@ kotlin {
             implementation(libs.androidx.activity.compose)
             // Fase 5 item 1: push via Firebase Cloud Messaging (mesmo backend do app nativo).
             implementation(libs.firebase.messaging)
+            // Push real: NotificationCompat (exibição da notificação em primeiro plano).
+            implementation(libs.androidx.core.ktx)
             // Fase 5 item 2: localização (FusedLocationProviderClient).
             implementation(libs.play.services.location)
         }

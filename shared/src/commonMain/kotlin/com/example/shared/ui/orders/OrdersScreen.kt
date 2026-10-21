@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -676,9 +677,18 @@ fun OrdersScreen(
                         Icon(Icons.Default.Refresh, "Atualizar pedidos", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                // TODO(fase-rede): badge ligado ao CartState real; na prévia a sacola está vazia.
-                IconButton(onClick = { /* TODO: navegar para a sacola quando o fluxo for ligado */ }, modifier = Modifier.testTag("orders_to_cart_button")) {
-                    BadgedBox(badge = { }) {
+                // Sacola: navega pro carrinho; badge com a quantidade real.
+                val cartCount = cart?.totalItemCount ?: 0
+                IconButton(onClick = onNavigateToCart, modifier = Modifier.testTag("orders_to_cart_button")) {
+                    BadgedBox(
+                        badge = {
+                            if (cartCount > 0) {
+                                Badge(containerColor = ItaSuperPrimary) {
+                                    Text(if (cartCount > 99) "99+" else cartCount.toString(), color = Color.White)
+                                }
+                            }
+                        }
+                    ) {
                         Icon(Icons.Default.ShoppingBag, "Ver Sacola", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }

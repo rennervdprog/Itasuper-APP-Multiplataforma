@@ -46,6 +46,8 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -102,6 +104,7 @@ import com.example.shared.ui.cart.CartHolder
 import com.example.shared.ui.common.StoreSwitchBottomSheet
 import com.example.shared.ui.permissions.LocationAndPermissionsDialog
 import com.example.shared.ui.permissions.PlatformPermissions
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
@@ -665,12 +668,24 @@ fun SearchScreen(
         }
     }
 
+    // Aviso visível ao pedir de novo: antes a adição era silenciosa e parecia
+    // que o botão não fazia nada (apontado pelo Renner em 2026-10-21).
+    val reorderSnackbar = remember { SnackbarHostState() }
+    var reorderSnackJob by remember { mutableStateOf<Job?>(null) }
+    fun notifyReordered(item: OrderAgainItem) {
+        reorderSnackJob?.cancel()
+        reorderSnackJob = scope.launch {
+            reorderSnackbar.showSnackbar("${item.product.name} adicionado à sacola")
+        }
+    }
+
     fun reorder(item: OrderAgainItem) {
         val activeCart = cart ?: return
         if (activeCart.isSwitchingStore(item.product)) {
             pendingReorder = item
         } else {
             activeCart.addProduct(item.product, quantity = 1, storeName = item.storeName)
+            notifyReordered(item)
         }
     }
 
@@ -683,6 +698,7 @@ fun SearchScreen(
     }
 
     // A bottom bar é renderizada pelo App (BottomNavBar); aqui só o conteúdo.
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -757,6 +773,14 @@ fun SearchScreen(
         }
     }
 
+        SnackbarHost(
+            hostState = reorderSnackbar,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        )
+    }
+
     // Confirmação de troca de loja ao pedir de novo (estilo iFood, igual ao original).
     val reorderPending = pendingReorder
     if (reorderPending != null && cart != null) {
@@ -766,6 +790,7 @@ fun SearchScreen(
                 cart.clearCart()
                 cart.addProduct(reorderPending.product, quantity = 1, storeName = reorderPending.storeName)
                 pendingReorder = null
+                notifyReordered(reorderPending)
             },
             onDismiss = { pendingReorder = null }
         )

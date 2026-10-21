@@ -363,8 +363,8 @@ fun StoreInfoScreen(
                                 .height(190.dp)
                                 .clip(RoundedCornerShape(20.dp))
                                 .background(Color(0xFFDCEFE0))
-                                // TODO(expect-actual): no Android original isto abria
-                                // Intent(ACTION_VIEW, Uri.parse("geo:0,0?q=...")).
+                                // Toque abre o endereço no app de mapas
+                                // (onOpenMap ligado no App via rememberUrlOpener).
                                 .clickable { if (address.isNotBlank()) onOpenMap() }
                         ) {
                             // Pin central

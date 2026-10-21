@@ -53,6 +53,23 @@ actual fun rememberTextSharer(): (text: String, title: String?) -> Boolean {
     }
 }
 
+/**
+ * iOS: UIApplication.openURL (equivalente ao ACTION_VIEW do Android).
+ */
+@Composable
+actual fun rememberUrlOpener(): (url: String) -> Boolean {
+    return remember {
+        { url: String ->
+            val nsUrl = platform.Foundation.NSURL(string = url)
+            if (nsUrl == null) {
+                false
+            } else {
+                UIApplication.sharedApplication.openURL(nsUrl)
+            }
+        }
+    }
+}
+
 private class DocumentPickerDelegate(
     private val onPicked: (PickedFile?) -> Unit
 ) : NSObject(), UIDocumentPickerDelegateProtocol {

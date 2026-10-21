@@ -75,6 +75,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import kotlin.math.roundToInt
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -336,6 +339,7 @@ fun HomeScreen(
     onStoreClick: (String) -> Unit = {},
     onProductClick: (DiscoverProduct) -> Unit = { onStoreClick(it.storeId) },
     onCartClick: () -> Unit = {},
+    onOrdersClick: () -> Unit = {},
     cartItemCount: Int = 0,
     cart: CartHolder? = null
 ) {
@@ -370,6 +374,10 @@ fun HomeScreen(
     // ITEM 3/6: estado dos diálogos de endereço/localização (no original vive
     // no HomeViewModel; fluxos reais de GPS/CEP/rede virão na fase-rede).
     val addressScope = rememberCoroutineScope()
+    // Destino do botão "Meus cupons" do topo: a seção Lojas com Cupom.
+    val homeScrollState = rememberScrollState()
+    val couponScrollScope = rememberCoroutineScope()
+    var couponsSectionY by remember { mutableStateOf<Int?>(null) }
     var showAddressChoiceDialog by remember { mutableStateOf(false) }
     var showAddressForm by remember { mutableStateOf(false) }
     var addressFormError by remember { mutableStateOf<String?>(null) }
@@ -597,14 +605,24 @@ fun HomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFFFAFAFA))
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(homeScrollState)
     ) {
         HomeHeaderSection(
             userName = session.name,
             streetName = session.activeLocationStreet.ifBlank { session.addressStreet },
             streetNumber = session.activeLocationNumber.ifBlank { session.addressNumber },
             cartItemCount = cartItemCount,
-            onCouponClick = { /* TODO: tela de cupons */ },
+            onCouponClick = {
+                // Botão "Meus cupons" do topo: rola até a seção Lojas com
+                // Cupom da própria Home (onde os cupons reais aparecem);
+                // sem lojas com cupom, leva pra Descobrir.
+                val targetY = couponsSectionY
+                if (storesWithCoupons.isNotEmpty() && targetY != null) {
+                    couponScrollScope.launch { homeScrollState.animateScrollTo(targetY) }
+                } else {
+                    onSearchClick()
+                }
+            },
             onCartClick = onCartClick,
             onAddressClick = { showAddressChoiceDialog = true }
         )
@@ -652,6 +670,11 @@ fun HomeScreen(
         // Lojas com cupons ativos.
         if (storesWithCoupons.isNotEmpty()) {
             Spacer(modifier = Modifier.height(24.dp))
+            Box(
+                modifier = Modifier.onGloballyPositioned { coords ->
+                    couponsSectionY = coords.positionInParent().y.roundToInt()
+                }
+            ) {
             HomeStoresWithCouponsSection(
                 storesWithCoupons = storesWithCoupons,
                 onStoreClick = { storeId, couponCode ->
@@ -662,6 +685,7 @@ fun HomeScreen(
                     onStoreClick(storeId)
                 }
             )
+            }
         }
 
         if (affordableProducts.isNotEmpty()) {
@@ -678,7 +702,7 @@ fun HomeScreen(
             HomeRepeatProductsSection(
                 products = repeatProducts,
                 onProductClick = onProductClick,
-                onViewMore = { /* TODO(fase-rede): tela de pedidos */ }
+                onViewMore = onOrdersClick
             )
         }
 
