@@ -6,7 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.viewinterop.UIKitViewController
+import androidx.compose.ui.viewinterop.UIKitView
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.readValue
 import platform.CoreGraphics.CGRectZero
@@ -63,7 +63,10 @@ actual fun TrackingMapView(
         }
     }
 
-    UIKitViewController(
+    // WKWebView é uma UIView (não um UIViewController): o interop correto
+    // é o UIKitView — com UIKitViewController o build iOS quebrava
+    // ("actual type is WKWebView, but UIViewController was expected").
+    UIKitView(
         factory = { webView },
         modifier = modifier
     )
