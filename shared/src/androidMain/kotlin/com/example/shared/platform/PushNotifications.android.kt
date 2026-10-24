@@ -10,13 +10,10 @@ import kotlin.coroutines.resume
 /**
  * Push no Android — porte do app original (Firebase Cloud Messaging).
  *
- * Este app roda com applicationId provisório (com.example.itasuper), que
- * NÃO está cadastrado no projeto Firebase — por isso não há
- * google-services.json utilizável e o Firebase é inicializado
- * manualmente com a configuração do app cliente oficial
- * (app.itasuper.cliente, mesmo projeto itafood-c71a1 do backend).
- * Quando o applicationId virar o definitivo, basta incluir o
- * google-services.json correspondente e remover esta inicialização.
+ * O applicationId agora é o mesmo do app cliente oficial
+ * (app.itasuper.cliente), que JÁ está cadastrado no projeto Firebase
+ * itafood-c71a1 — por isso o Firebase continua sendo inicializado
+ * manualmente com a configuração oficial, sem google-services.json.
  * A chave abaixo é a chave pública de cliente do Firebase (a mesma que
  * vai embutida em todo APK publicado) — não é segredo de servidor.
  */
