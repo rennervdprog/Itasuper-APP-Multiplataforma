@@ -54,11 +54,14 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -157,8 +160,8 @@ import kotlin.math.round
  *   (America/Sao_Paulo), mesma regra de faixa de horário do original.
  * - A busca é "toque para abrir" ([onSearchClick], como a fase 3a) em vez do
  *   campo editável inline do original — visual idêntico.
- * - Scaffold/bottom bar/snackbar/pull-to-refresh pertencem ao App.kt no KMP;
- *   aqui vai só o conteúdo rolável (fundo 0xFFFAFAFA, como o Scaffold original).
+ * - Scaffold/bottom bar/snackbar pertencem ao App.kt no KMP; o pull-to-refresh
+ *   vive nesta tela (igual ao original), envolvendo o conteúdo rolável.
  * - Diálogos de permissões dependem de APIs de plataforma e ficam fora desta
  *   tela. Diálogos de endereço (ITEM 3/6) e o SupportBottomSheet (ITEM 4/6)
  *   foram migrados e estão conectados aqui.
@@ -333,6 +336,7 @@ private fun homeCategories(): List<CategoryItem> = listOf(
     CategoryItem(id = "churrasco", name = "Churrasco", iconName = "churrasco")
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onSearchClick: () -> Unit = {},
@@ -349,6 +353,7 @@ fun HomeScreen(
     var isLoadingStores by remember { mutableStateOf(true) }
     var storesErrorMessage by remember { mutableStateOf<String?>(null) }
     var storesReloadKey by remember { mutableStateOf(0) }
+    var isPullRefreshing by remember { mutableStateOf(false) }
     LaunchedEffect(storesReloadKey) {
         isLoadingStores = true
         storesErrorMessage = null
@@ -363,6 +368,7 @@ fun HomeScreen(
             storesErrorMessage = "Não foi possível carregar as lojas. Verifique sua conexão."
         }
         isLoadingStores = false
+        isPullRefreshing = false
     }
 
     // Estado que no original vive no HomeViewModel.
@@ -601,6 +607,15 @@ fun HomeScreen(
     val requiresAddress = activeCity.isBlank()
     val hasActiveFilters = selectedCategory != "todas" || isFreeFeeActive || isDirectDeliveryActive
 
+    PullToRefreshBox(
+        isRefreshing = isPullRefreshing,
+        onRefresh = {
+            isPullRefreshing = true
+            storesReloadKey++
+        },
+        state = rememberPullToRefreshState(),
+        modifier = Modifier.fillMaxSize()
+    ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -735,6 +750,7 @@ fun HomeScreen(
         // cortada e o catálogo completo continua acessível pela Busca.
         Spacer(modifier = Modifier.height(18.dp))
     }
+}
 
     // ITEM 4/6: bottom sheet de suporte (migração 1:1 do original — lá o sheet
     // é hospedado pela Home via uiState.showSupportSheet).
@@ -3549,3 +3565,4 @@ private fun StoreAvailabilityBadge(isOpen: Boolean) {
         }
     }
 }
+
