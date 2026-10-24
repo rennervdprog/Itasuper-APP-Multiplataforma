@@ -490,7 +490,10 @@ object SupabaseApi {
     }
 
     /** Taxa-base ao cliente via RPC pública (mesma usada pela cotação). null = indisponível. */
-    suspend fun fetchOfficialCustomerDeliveryFee(storeId: String): Double? {
+    /** Perfil oficial de taxa da loja (RPC compute_store_delivery_fee). */
+    data class OfficialFeeProfile(val customerTotal: Double, val platformAddCustomer: Double)
+
+    suspend fun fetchOfficialFeeProfile(storeId: String): OfficialFeeProfile? {
         if (storeId.isBlank()) return null
         val body = buildJsonObject { putStr("_store_id", storeId) }.toString()
         val (ok, text) = restPostRaw("$SUPABASE_URL/rest/v1/rpc/compute_store_delivery_fee", body)
@@ -502,10 +505,19 @@ object SupabaseApi {
                 is JsonObject -> el
                 else -> null
             } ?: return null
-            obj.optDouble("customer_total", Double.NaN).takeIf { it.isFinite() && it >= 0.0 }
+            val total = obj.optDouble("customer_total", Double.NaN)
+            if (!total.isFinite() || total < 0.0) return null
+            OfficialFeeProfile(
+                customerTotal = total,
+                platformAddCustomer = obj.optDouble("platform_add_customer", 0.0)
+            )
         } catch (_: Exception) {
             null
         }
+    }
+
+    suspend fun fetchOfficialCustomerDeliveryFee(storeId: String): Double? {
+        return fetchOfficialFeeProfile(storeId)?.customerTotal
     }
 
     /** IDs de lojas com ao menos um entregador online (RPC pública). null = RPC indisponível. */
@@ -848,14 +860,22 @@ object SupabaseApi {
             val withOfficialFees = coroutineScope {
                 catalogStores.map { store ->
                     async {
-                        val officialFee = fetchOfficialCustomerDeliveryFee(store.id)
-                        if (officialFee == null || store.deliveryMode.equals("pickup", ignoreCase = true)) {
+                        val profile = fetchOfficialFeeProfile(store.id)
+                        if (profile == null || store.deliveryMode.equals("pickup", ignoreCase = true)) {
                             store
                         } else {
+                            // Loja por km: o total da RPC usa own_delivery_fee, que não é a
+                            // base do km. O piso real é base do km + split — exibe "a partir de".
+                            val isKm = store.deliveryFeeType.equals("km", ignoreCase = true)
+                            val feeText = when {
+                                profile.customerTotal <= 0.0 -> "Grátis"
+                                isKm -> "a partir de " + formatBrl(store.deliveryFeeBase + profile.platformAddCustomer)
+                                else -> formatBrl(profile.customerTotal)
+                            }
                             store.copy(
-                                deliveryFee = if (officialFee <= 0.0) "Grátis" else formatBrl(officialFee),
-                                officialCustomerDeliveryFee = officialFee,
-                                isFreeDelivery = officialFee <= 0.0
+                                deliveryFee = feeText,
+                                officialCustomerDeliveryFee = profile.customerTotal,
+                                isFreeDelivery = profile.customerTotal <= 0.0
                             )
                         }
                     }
@@ -3057,3 +3077,4 @@ object SupabaseApi {
         }
     }
 }
+

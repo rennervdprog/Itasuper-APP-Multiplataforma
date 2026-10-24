@@ -46,6 +46,9 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -433,6 +436,8 @@ fun SearchScreen(
     var savedCollectionIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var recentTerms by remember { mutableStateOf(SearchHistory.load()) }
     var isLoadingDiscovery by remember { mutableStateOf(true) }
+    var isPullRefreshingDiscover by remember { mutableStateOf(false) }
+    var discoverReloadKey by remember { mutableStateOf(0) }
     // ITEM 6/6: diálogo contextual de permissão de localização (espelha o
     // SearchScreen do app Android).
     var showLocationPermissionDialog by remember { mutableStateOf(false) }
@@ -461,13 +466,14 @@ fun SearchScreen(
 
     // Catálogo público de lojas (mesma fonte da Home).
     var allStores by remember { mutableStateOf<List<Store>>(emptyList()) }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(discoverReloadKey) {
         try {
             val result = SupabaseApi.fetchActiveStores()
             if (result.isSuccess) allStores = result.stores
         } catch (_: Throwable) {
             // Sem rede: região fica vazia (nada de dado mockado).
         }
+        isPullRefreshingDiscover = false
     }
 
     // Região = cidade efetiva (GPS ativo, senão cadastro); sem cidade = vazio;
@@ -749,6 +755,11 @@ fun SearchScreen(
         } else {
             DiscoverLanding(
                 isLoadingDiscovery = isLoadingDiscovery,
+                isRefreshing = isPullRefreshingDiscover,
+                onRefresh = {
+                    isPullRefreshingDiscover = true
+                    discoverReloadKey++
+                },
                 quickFilter = quickFilter,
                 categories = discoverCategories,
                 selectedCategoryId = selectedCategoryId,
@@ -929,9 +940,12 @@ private fun DiscoverAppBar(
 }
 
 /** Feed da Descoberta na ordem exata do protótipo. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DiscoverLanding(
     isLoadingDiscovery: Boolean,
+    isRefreshing: Boolean = false,
+    onRefresh: () -> Unit = {},
     quickFilter: DiscoverQuickFilter?,
     categories: List<SearchCategory>,
     selectedCategoryId: String?,
@@ -956,6 +970,12 @@ private fun DiscoverLanding(
         (trendingStores + recommendedStores + utilityStores).associateBy { it.id }
     }
 
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        state = rememberPullToRefreshState(),
+        modifier = Modifier.fillMaxSize()
+    ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 14.dp)
@@ -1056,6 +1076,7 @@ private fun DiscoverLanding(
             }
         }
     }
+}
 }
 
 /** Filtros rápidos do protótipo (.chips / .fchip). */
@@ -2351,3 +2372,4 @@ private fun DiscoverResults(
         }
     }
 }
+
