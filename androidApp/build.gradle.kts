@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "com.itasuper.app"
+    namespace = "app.itasuper.cliente"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "com.itasuper.app"
+        applicationId = "app.itasuper.cliente"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = 12
