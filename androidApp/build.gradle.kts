@@ -28,13 +28,13 @@ android {
         val storePasswordValue = System.getenv("KEYSTORE_PASSWORD")
         val keyAliasValue = System.getenv("KEY_ALIAS")
         val keyPasswordValue = System.getenv("KEY_PASSWORD")
-        if (keystorePath != null && java.io.File(keystorePath).exists()
+        if (keystorePath != null && file(keystorePath).exists()
             && !storePasswordValue.isNullOrBlank()
             && !keyAliasValue.isNullOrBlank()
             && !keyPasswordValue.isNullOrBlank()
         ) {
             create("release") {
-                storeFile = java.io.File(keystorePath)
+                storeFile = file(keystorePath)
                 storePassword = storePasswordValue
                 keyAlias = keyAliasValue
                 keyPassword = keyPasswordValue
