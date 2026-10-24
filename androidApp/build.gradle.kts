@@ -6,14 +6,14 @@ plugins {
 }
 
 android {
-    namespace = "com.example.itasuper"
+    namespace = "com.itasuper.app"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "com.example.itasuper"
+        applicationId = "com.itasuper.app"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 11
+        versionCode = 12
         versionName = "1.0.0"
     }
 
