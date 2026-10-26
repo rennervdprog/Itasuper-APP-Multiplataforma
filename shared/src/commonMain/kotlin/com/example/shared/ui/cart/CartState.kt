@@ -404,7 +404,9 @@ class CartHolder {
         quantity: Int = 1,
         notes: String = "",
         addons: List<SelectedAddonItem> = emptyList(),
-        storeName: String = ""
+        storeName: String = "",
+        /** Regra de preço da loja (settings.pizza_price_mode) — afeta só grupos price_replaces_base (1B). */
+        priceMode: String = "maior"
     ): Boolean {
         if (isPharmacyBlocked(product)) return false
         if (items.isNotEmpty() && storeId != null && storeId != product.storeId) {
@@ -442,7 +444,7 @@ class CartHolder {
                 it[existing] = it[existing].copy(quantity = it[existing].quantity + quantity)
             }
         } else {
-            items + CartItem(product = product, quantity = quantity, notes = notes, selectedAddons = addons)
+            items + CartItem(product = product, quantity = quantity, notes = notes, selectedAddons = addons, priceMode = priceMode)
         }
         return true
     }
@@ -837,21 +839,46 @@ class CartHolder {
     fun openPixDirectPayment(order: Order) {
         pixDirectPayment = PixDirectPaymentUiState(order = order)
         scope.launch {
-            val store = try { SupabaseApi.fetchStoreById(order.storeId) } catch (_: Throwable) { null }
-            if (store == null || !store.pixDirectEnabled || store.pixDirectKey.isBlank()) {
+            val token = try { secureStorage.get(KEY_ACCESS_TOKEN) } catch (_: Throwable) { null }
+            if (token.isNullOrBlank()) {
                 pixDirectPayment = PixDirectPaymentUiState(
                     order = order,
+                    errorMessage = "Sua sessão expirou. Entre novamente para ver a chave PIX."
+                )
+                return@launch
+            }
+            // Atualiza prazo/status do pedido (o pedido recém-criado não traz
+            // pix_expires_at — sem isso o cronômetro de 20 min não aparece).
+            val freshState = try { SupabaseApi.fetchOrderPixState(order.id, token) } catch (_: Throwable) { null }
+            val freshOrder = if (freshState != null) {
+                order.copy(pixExpiresAt = freshState.pixExpiresAt, status = freshState.status)
+            } else {
+                order
+            }
+            if (freshState?.status.equals("cancelado", ignoreCase = true)) {
+                pixDirectPayment = PixDirectPaymentUiState(
+                    order = freshOrder,
+                    errorMessage = "O prazo do PIX expirou e o pedido foi cancelado. Faça um novo pedido."
+                )
+                return@launch
+            }
+            // A chave NÃO vem mais de stores_public (Fase 5 da web, 26/10) — só
+            // via RPC get_store_pix_direto, por pedido, com o token do cliente.
+            val pix = try { SupabaseApi.fetchPixDiretoForOrder(order.id, token) } catch (_: Throwable) { null }
+            if (pix == null || pix.pixKey.isBlank()) {
+                pixDirectPayment = PixDirectPaymentUiState(
+                    order = freshOrder,
                     errorMessage = "A chave PIX direto desta loja não está disponível."
                 )
                 return@launch
             }
             pixDirectPayment = PixDirectPaymentUiState(
-                order = order,
-                storeName = store.name,
-                pixKey = store.pixDirectKey,
-                pixKeyType = store.pixDirectKeyType,
-                beneficiary = store.pixDirectBeneficiary,
-                instructions = store.pixDirectInstructions
+                order = freshOrder,
+                storeName = pix.storeName.ifBlank { order.storeName },
+                pixKey = pix.pixKey,
+                pixKeyType = pix.pixKeyType,
+                beneficiary = pix.beneficiary,
+                instructions = pix.instructions
             )
         }
     }

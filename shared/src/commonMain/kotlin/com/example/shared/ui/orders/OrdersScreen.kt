@@ -770,21 +770,27 @@ fun OrdersScreen(
                                 }
                             },
                             onPixDirect = {
-                                // Porte do openPixDirectPayment do original: a
-                                // chave vem do cadastro REAL da loja.
+                                // A chave NÃO vem mais de stores_public (Fase 5
+                                // da web, 26/10) — só via RPC get_store_pix_direto,
+                                // por pedido, com o token do usuário (o mesmo
+                                // caminho de CartState.openPixDirectPayment).
                                 scope.launch {
-                                    val store = SupabaseApi.fetchStoreById(order.storeId)
-                                    if (store == null || !store.pixDirectEnabled || store.pixDirectKey.isBlank()) {
-                                        actionError.value = "A chave PIX direto desta loja não está disponível."
+                                    if (session.accessToken.isBlank()) {
+                                        actionError.value = "Sua sessão expirou. Entre novamente para ver a chave PIX."
                                     } else {
-                                        pixDirectDialog.value = PixDirectPaymentUiState(
-                                            order = order,
-                                            storeName = store.name,
-                                            pixKey = store.pixDirectKey,
-                                            pixKeyType = store.pixDirectKeyType,
-                                            beneficiary = store.pixDirectBeneficiary,
-                                            instructions = store.pixDirectInstructions
-                                        )
+                                        val pix = SupabaseApi.fetchPixDiretoForOrder(order.id, session.accessToken)
+                                        if (pix == null || pix.pixKey.isBlank()) {
+                                            actionError.value = "A chave PIX direto desta loja não está disponível."
+                                        } else {
+                                            pixDirectDialog.value = PixDirectPaymentUiState(
+                                                order = order,
+                                                storeName = pix.storeName.ifBlank { order.storeName },
+                                                pixKey = pix.pixKey,
+                                                pixKeyType = pix.pixKeyType,
+                                                beneficiary = pix.beneficiary,
+                                                instructions = pix.instructions
+                                            )
+                                        }
                                     }
                                 }
                             },

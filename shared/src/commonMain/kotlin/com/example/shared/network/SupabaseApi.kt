@@ -646,6 +646,10 @@ object SupabaseApi {
                 val planType = item.optString("plan_type", "")
                 val autonomyLifetimeFree = item.optBoolean("autonomy_lifetime_free", false)
                 val pixDirectEnabled = item.optBoolean("pix_direto_enabled", false)
+                // A chave NÃO vem mais na view desde a Fase 5 (26/10) — só o
+                // booleano "tem chave configurada". A chave vem por pedido via
+                // RPC get_store_pix_direto (fetchPixDiretoForOrder).
+                val pixDirectKeyConfigured = item.optBoolean("pix_direto_key_configured", false)
                 val pixDirectKey = item.optString("pix_direto_key", "").trim()
                 val pixDirectKeyType = item.optString("pix_direto_key_type", "").trim()
                 val pixDirectBeneficiary = item.optString("pix_direto_beneficiary", "").trim()
@@ -808,6 +812,7 @@ object SupabaseApi {
                         platformDeliverySplitOverride = platformDeliverySplitOverride,
                         autonomyLifetimeFree = autonomyLifetimeFree,
                         pixDirectEnabled = pixDirectEnabled,
+                        pixDirectKeyConfigured = pixDirectKeyConfigured,
                         pixDirectKey = pixDirectKey,
                         pixDirectKeyType = pixDirectKeyType,
                         pixDirectBeneficiary = pixDirectBeneficiary,
@@ -1462,6 +1467,84 @@ object SupabaseApi {
         if (storeId.isBlank()) return null
         return try {
             fetchActiveStores().stores.firstOrNull { it.id == storeId }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // (d3) PIX DIRETO POR PEDIDO (Fase 1, G3) — a chave NÃO vem mais de
+    // stores_public (Fase 5 da web, 26/10). A única fonte é a RPC
+    // get_store_pix_direto(p_order_id), authenticated, só p/ o dono do
+    // pedido (ou dono da loja / admin). Chamar SEMPRE com o token do
+    // usuário — com o anon key a RPC devolve [].
+    // ------------------------------------------------------------------
+
+    /** Chave Pix Direto da loja de um pedido (RPC get_store_pix_direto). */
+    data class PixDiretoInfo(
+        val storeName: String = "",
+        val pixKey: String = "",
+        val pixKeyType: String = "",
+        val beneficiary: String = "",
+        val instructions: String = ""
+    )
+
+    /** Parser puro da resposta da RPC (array com 0 ou 1 linha). null = sem chave. */
+    fun parsePixDiretoResponse(text: String): PixDiretoInfo? {
+        if (text.isBlank()) return null
+        return try {
+            val el = json.parseToJsonElement(text)
+            val obj = when (el) {
+                is JsonArray -> el.firstOrNull()?.jsonObject
+                is JsonObject -> el
+                else -> null
+            } ?: return null
+            val key = obj.optString("pix_direto_key", "").trim()
+            if (key.isBlank()) return null
+            PixDiretoInfo(
+                storeName = obj.optString("name", "").trim(),
+                pixKey = key,
+                pixKeyType = obj.optString("pix_direto_key_type", "").trim(),
+                beneficiary = obj.optString("pix_direto_beneficiary", "").trim(),
+                instructions = obj.optString("pix_direto_instructions", "").trim()
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    suspend fun fetchPixDiretoForOrder(orderId: String, accessToken: String): PixDiretoInfo? {
+        if (orderId.isBlank() || accessToken.isBlank()) return null
+        return try {
+            val body = buildJsonObject { putStr("p_order_id", orderId) }.toString()
+            val (ok, text) = restPostRaw(
+                "$SUPABASE_URL/rest/v1/rpc/get_store_pix_direto",
+                body,
+                bearer <redacted> accessToken
+            )
+            if (!ok) return null
+            parsePixDiretoResponse(text)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Prazo e status atuais de um pedido (p/ o cronômetro de 20 min do Pix Direto). */
+    data class OrderPixState(val pixExpiresAt: String = "", val status: String = "")
+
+    suspend fun fetchOrderPixState(orderId: String, accessToken: String): OrderPixState? {
+        if (orderId.isBlank() || accessToken.isBlank()) return null
+        return try {
+            val (ok, text) = restGetRaw(
+                "$SUPABASE_URL/rest/v1/orders?select=pix_expires_at,status&id=eq.$orderId",
+                bearer <redacted> accessToken
+            )
+            if (!ok || text.isBlank()) return null
+            val obj = parseArray(text).firstOrNull()?.jsonObject ?: return null
+            OrderPixState(
+                pixExpiresAt = obj.optString("pix_expires_at", ""),
+                status = obj.optString("status", "")
+            )
         } catch (_: Exception) {
             null
         }

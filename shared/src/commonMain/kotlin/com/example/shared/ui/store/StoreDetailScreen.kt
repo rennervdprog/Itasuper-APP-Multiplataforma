@@ -93,6 +93,7 @@ import com.example.shared.model.CartItem
 import com.example.shared.model.MenuSection
 import com.example.shared.model.PizzaAddonGroup
 import com.example.shared.model.PizzaBorder
+import com.example.shared.model.PizzaPricing
 import com.example.shared.model.Product
 import com.example.shared.model.ProductAddonsPayload
 import com.example.shared.model.SelectedAddonItem
@@ -136,7 +137,8 @@ private data class PendingAdd(
     val product: Product,
     val quantity: Int,
     val notes: String,
-    val addons: List<SelectedAddonItem>
+    val addons: List<SelectedAddonItem>,
+    val priceMode: String = "maior"
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -356,7 +358,8 @@ fun StoreDetailScreen(
         product: Product,
         quantity: Int = 1,
         notes: String = "",
-        addons: List<SelectedAddonItem> = emptyList()
+        addons: List<SelectedAddonItem> = emptyList(),
+        priceMode: String = "maior"
     ) {
         if (cart.isPharmacyBlocked(product)) {
             showPharmacyBlockedMessage = true
@@ -365,7 +368,8 @@ fun StoreDetailScreen(
                 product = product,
                 quantity = quantity,
                 notes = notes,
-                addons = addons
+                addons = addons,
+                priceMode = priceMode
             )
             showStoreSwitch = true
         } else {
@@ -374,7 +378,8 @@ fun StoreDetailScreen(
                 quantity = quantity,
                 notes = notes,
                 addons = addons,
-                storeName = store.name
+                storeName = store.name,
+                priceMode = priceMode
             )
         }
     }
@@ -393,7 +398,8 @@ fun StoreDetailScreen(
             product,
             quantity = modalQuantity,
             notes = modalNotes,
-            addons = selectedModalAddonItems()
+            addons = selectedModalAddonItems(),
+            priceMode = store.settings.pizzaPriceMode
         )
         selectedProduct = null
     }
@@ -808,7 +814,8 @@ fun StoreDetailScreen(
                 totalPrice = CartItem(
                     product = product,
                     quantity = modalQuantity,
-                    selectedAddons = selectedModalAddonItems()
+                    selectedAddons = selectedModalAddonItems(),
+                    priceMode = store.settings.pizzaPriceMode
                 ).totalPrice,
                 onToggleAddon = { group, item -> toggleModalAddon(group, item) },
                 onQuantityIncrement = { modalQuantity++ },
@@ -832,7 +839,7 @@ fun StoreDetailScreen(
                 products = products,
                 menuSections = menuSections,
                 onRequestAdd = { product, quantity, notes, addons ->
-                    requestAdd(product, quantity = quantity, notes = notes, addons = addons)
+                    requestAdd(product, quantity = quantity, notes = notes, addons = addons, priceMode = store.settings.pizzaPriceMode)
                 },
                 onClose = { showBuilder = null }
             )
@@ -856,7 +863,8 @@ fun StoreDetailScreen(
                             quantity = pending.quantity,
                             notes = pending.notes,
                             addons = pending.addons,
-                            storeName = store.name
+                            storeName = store.name,
+                            priceMode = pending.priceMode
                         )
                     }
                     pendingAdd = null
@@ -2084,7 +2092,9 @@ private fun PizzaBuilderSheetContent(
     fun calcBasePrice(): Double {
         if (!allChosen) return 0.0
         val prices = selectedFlavors.map { priceForFlavor(it!!) }
-        return if (priceMode == "media") prices.sum() / prices.size else (prices.maxOrNull() ?: 0.0)
+        // Montador da web (PizzaHalfHalfModal): combinePricesByMode — "media"
+        // e "soma" tiram a média; qualquer outro modo vale o maior (1D).
+        return PizzaPricing.combinePricesByMode(prices, priceMode)
     }
 
     val basePrice = calcBasePrice()

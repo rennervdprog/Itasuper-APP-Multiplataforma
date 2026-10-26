@@ -117,19 +117,41 @@ data class CartItem(
     val product: Product,
     val quantity: Int,
     val notes: String = "",
-    val selectedAddons: List<SelectedAddonItem> = emptyList()
+    val selectedAddons: List<SelectedAddonItem> = emptyList(),
+    /**
+     * Regra de preço da loja (settings.pizza_price_mode). Só afeta grupos
+     * price_replaces_base no modal de produto (1B/1D). O default "maior"
+     * preserva o comportamento anterior nos demais caminhos.
+     */
+    val priceMode: String = "maior"
 ) {
     val unitPrice: Double
         get() {
-            var base = product.price
-            val replacingAddon = selectedAddons.firstOrNull { it.priceReplacesBase }
-            if (replacingAddon != null) {
-                base = replacingAddon.itemPrice
-                val otherAddonsSum = selectedAddons.filter { it.itemId != replacingAddon.itemId }.sumOf { it.itemPrice }
-                return base + otherAddonsSum
+            // Item montado (pizza/pastel meio a meio): o preço do produto JÁ é
+            // o total do montador — somar os adicionais de novo contaria a
+            // borda/adicionais 2x no carrinho (G1: 89,98 virava 99,97).
+            if (PizzaPricing.isBuiltProduct(product)) {
+                return product.price
+            }
+            val replacing = selectedAddons.filter { it.priceReplacesBase }
+            if (replacing.isNotEmpty()) {
+                // Modal da web (ProductDetailModal): por grupo que substitui a
+                // base, o modo "maior" vale o MAIOR item distinto do grupo (o
+                // mesmo sabor 2x conta uma vez só); demais modos somam os
+                // lineTotals do grupo (G2: 64,99+74,99+79,99 = 79,99 em
+                // "maior", 219,97 nos demais).
+                val replacementTotal = replacing.groupBy { it.groupId }.values.sumOf { rows ->
+                    if (priceMode == "maior") {
+                        rows.distinctBy { it.itemId }.maxOfOrNull { it.itemPrice } ?: 0.0
+                    } else {
+                        rows.sumOf { it.itemPrice }
+                    }
+                }
+                val normalTotal = selectedAddons.filter { !it.priceReplacesBase }.sumOf { it.itemPrice }
+                return replacementTotal + normalTotal
             }
             val addonsSum = selectedAddons.sumOf { it.itemPrice }
-            return base + addonsSum
+            return product.price + addonsSum
         }
 
     val totalPrice: Double

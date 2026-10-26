@@ -64,6 +64,11 @@ kotlin {
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
         }
+        // Fase 1 do alinhamento web × KMP: testes unitários do preço da pizza
+        // e do parser da RPC get_store_pix_direto (PizzaPricingTest).
+        commonTest.dependencies {
+            implementation(kotlin("test"))
+        }
     }
 }
 

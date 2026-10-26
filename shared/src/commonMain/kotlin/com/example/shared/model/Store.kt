@@ -66,6 +66,8 @@ data class Store(
     val platformDeliverySplitOverride: Double? = null,
     val autonomyLifetimeFree: Boolean = false,
     val pixDirectEnabled: Boolean = false,
+    /** A loja tem chave Pix Direto configurada (coluna pix_direto_key_configured da view — a chave em si NÃO vem mais na view desde a Fase 5, 26/10). */
+    val pixDirectKeyConfigured: Boolean = false,
     val pixDirectKey: String = "",
     val pixDirectKeyType: String = "",
     val pixDirectBeneficiary: String = "",
