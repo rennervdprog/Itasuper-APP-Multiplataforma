@@ -1520,7 +1520,7 @@ object SupabaseApi {
             val (ok, text) = restPostRaw(
                 "$SUPABASE_URL/rest/v1/rpc/get_store_pix_direto",
                 body,
-                bearer <redacted> accessToken
+                accessToken
             )
             if (!ok) return null
             parsePixDiretoResponse(text)
@@ -1537,7 +1537,7 @@ object SupabaseApi {
         return try {
             val (ok, text) = restGetRaw(
                 "$SUPABASE_URL/rest/v1/orders?select=pix_expires_at,status&id=eq.$orderId",
-                bearer <redacted> accessToken
+                accessToken
             )
             if (!ok || text.isBlank()) return null
             val obj = parseArray(text).firstOrNull()?.jsonObject ?: return null
