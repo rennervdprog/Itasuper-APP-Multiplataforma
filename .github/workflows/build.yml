@@ -30,6 +30,11 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: ./gradlew :shared:testDebugUnitTest --stacktrace
 
+      # Mostra quantos testes rodaram/passaram (o job passa até com 0 testes).
+      - name: Show test counts
+        if: always()
+        run: grep -ho 'tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' shared/build/test-results/testDebugUnitTest/*.xml
+
   build-android:
     name: Build Android (APK)
     runs-on: ubuntu-latest
