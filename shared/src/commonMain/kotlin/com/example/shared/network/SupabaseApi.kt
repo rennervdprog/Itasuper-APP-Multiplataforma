@@ -1345,7 +1345,7 @@ object SupabaseApi {
                     isPreorder = isPreorder,
                     scheduledFor = order.scheduledFor.ifBlank { null },
                     couponId = couponId,
-                    couponDiscount = order.couponDiscount,
+                    couponDiscount = order.discount,
                     loyaltyPoints = order.loyaltyPointsUsed,
                     loyaltyDiscount = order.loyaltyDiscount,
                     walletDiscount = walletDiscount,
