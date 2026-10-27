@@ -22,6 +22,14 @@ import com.example.shared.model.ProductAddonsPayload
 import com.example.shared.model.SavedAddress
 import com.example.shared.model.StoreDeliveryAvailability
 import com.example.shared.model.buildCreateOrderPayload
+import com.example.shared.model.ClaimAddressInput
+import com.example.shared.model.ClaimCheckResult
+import com.example.shared.model.ClaimSendOtpResult
+import com.example.shared.model.ClaimVerifyOtpResult
+import com.example.shared.model.buildClaimVerifyOtpBody
+import com.example.shared.model.parseClaimCheckResponse
+import com.example.shared.model.parseClaimSendOtpResponse
+import com.example.shared.model.parseClaimVerifyOtpResponse
 import com.example.shared.model.normalizeBrazilianUf
 import com.example.shared.model.parseCreateOrderResult
 import com.example.shared.model.Coupon
@@ -1277,10 +1285,25 @@ object SupabaseApi {
         return parseAuthResponse(ok, text, email, "E-mail ou senha incorretos")
     }
 
-    suspend fun signUp(email: String, password: String): SupabaseAuthResponse {
+    /**
+     * Cadastro via Auth (POST /auth/v1/signup). `metadata` vira
+     * `raw_user_meta_data` — o trigger `handle_new_user` lê `role`,
+     * `full_name` e `delivery_pin` dali para criar o perfil. Sem metadata,
+     * o perfil nasce com nome vazio e sem PIN (o app antigo não enviava).
+     */
+    suspend fun signUp(
+        email: String,
+        password: String,
+        metadata: Map<String, String>? = null
+    ): SupabaseAuthResponse {
         val body = buildJsonObject {
             putStr("email", email.trim())
             putStr("password", password)
+            if (!metadata.isNullOrEmpty()) {
+                put("data", buildJsonObject {
+                    for ((key, value) in metadata) putStr(key, value)
+                })
+            }
         }.toString()
         val (ok, text) = authPostRaw("signup", body)
         return parseAuthResponse(ok, text, email, "Erro ao criar conta")
@@ -2282,26 +2305,98 @@ object SupabaseApi {
     }
 
     /** Insere a linha do perfil após o cadastro (tabela `profiles`). */
-    suspend fun insertProfile(
+    /**
+     * Fase 3 (3A) — completa o perfil criado pelo trigger `handle_new_user`
+     * após o signUp (mesmas escritas do cadastro da web, AuthPage.tsx).
+     * É PATCH, não POST: o trigger já criou a linha do perfil no signUp —
+     * o POST antigo (`insertProfile`, removido) dava 409 de chave duplicada.
+     * Grava o telefone nos DOIS campos (`phone` e `whatsapp_number`): o bot
+     * busca por `phone` OU `whatsapp_number` (Fase 3, P0-3); sem o `phone`
+     * o cadastro do site nunca era achado pelo bot e nascia duplicado.
+     */
+    suspend fun updateProfileAfterSignup(
         userId: String,
+        accessToken: String,
         fullName: String,
-        document: String,
-        whatsappNumber: String,
         email: String,
-        deliveryPin: String,
-        accessToken: String? = null
+        phone: String,
+        deliveryPin: String
     ): Boolean {
+        if (userId.isBlank() || accessToken.isBlank()) return false
         val body = buildJsonObject {
-            putStr("user_id", userId)
-            putStr("full_name", fullName)
-            putStr("document", document)
-            putStr("whatsapp_number", whatsappNumber)
-            putStr("email", email)
+            putStr("full_name", fullName.trim())
+            putStr("email", email.trim().lowercase())
+            putStr("phone", phone)
+            putStr("whatsapp_number", phone)
             putStr("delivery_pin", deliveryPin)
+            putStr("terms_accepted_at", Clock.System.now().toString())
         }.toString()
-        val bearer = accessToken?.takeIf { it.isNotBlank() } ?: SUPABASE_ANON_KEY
-        val (ok, _) = restPostRaw("$SUPABASE_URL/rest/v1/profiles", body, bearer = bearer, prefer = "return=minimal")
+        val (ok, _) = restPatchRaw(
+            "$SUPABASE_URL/rest/v1/profiles?user_id=eq.$userId",
+            body, bearer = accessToken, prefer = "return=minimal"
+        )
         return ok
+    }
+
+    // ------------------------------------------------------------------
+    // (f) REIVINDICAÇÃO DE CONTA — Fase 3 (3B / 6D-B, Opção A2)
+    // ------------------------------------------------------------------
+
+    /**
+     * `claim-check`: procura o telefone em conta real ou guest. As edges
+     * são anônimas — o `restPostRaw` já envia `apikey` + `Authorization`
+     * com a anon key, igual ao `callClaimFunction` da web. O corpo da
+     * resposta carrega o status mesmo em 4xx, por isso o parse não depende
+     * do `ok` do HTTP.
+     */
+    suspend fun claimCheck(phone: String): ClaimCheckResult? {
+        val body = buildJsonObject { putStr("phone", phone) }.toString()
+        val (_, text) = restPostRaw("$SUPABASE_URL/functions/v1/claim-check", body)
+        return parseClaimCheckResponse(text)
+    }
+
+    /** `claim-send-otp`: envia o código de 6 dígitos no WhatsApp do guest. */
+    suspend fun claimSendOtp(phone: String, guestUserId: String): ClaimSendOtpResult? {
+        val body = buildJsonObject {
+            putStr("phone", phone)
+            putStr("guest_user_id", guestUserId)
+        }.toString()
+        val (_, text) = restPostRaw("$SUPABASE_URL/functions/v1/claim-send-otp", body)
+        return parseClaimSendOtpResponse(text)
+    }
+
+    /**
+     * `claim-verify-otp`: verifica o código E converte o guest em conta de
+     * verdade numa só chamada (mesmo user_id, histórico preservado).
+     */
+    suspend fun claimVerifyOtp(
+        phone: String,
+        guestUserId: String,
+        code: String,
+        email: String,
+        password: String,
+        fullName: String,
+        address: ClaimAddressInput,
+        deliveryPin: String,
+        termsVersion: String,
+        privacyVersion: String,
+        userAgent: String = "ItaSuper KMP"
+    ): ClaimVerifyOtpResult? {
+        val body = buildClaimVerifyOtpBody(
+            phone = phone,
+            guestUserId = guestUserId,
+            code = code,
+            email = email,
+            password = password,
+            fullName = fullName,
+            address = address,
+            deliveryPin = deliveryPin,
+            termsVersion = termsVersion,
+            privacyVersion = privacyVersion,
+            userAgent = userAgent
+        )
+        val (_, text) = restPostRaw("$SUPABASE_URL/functions/v1/claim-verify-otp", body)
+        return parseClaimVerifyOtpResponse(text)
     }
 
     /** Atualiza nome e documento do perfil. */
@@ -3071,22 +3166,45 @@ object SupabaseApi {
         }
     }
 
-    /** Busca endereço pelo CEP na API pública ViaCEP (sem autenticação). */
+    /**
+     * Busca endereço pelo CEP na API pública ViaCEP (sem autenticação),
+     * com fallback para a BrasilAPI — igual ao `fetchCep` da web
+     * (ViaCEP → BrasilAPI). CEP inexistente vira null (aviso, não trava).
+     */
     suspend fun fetchAddressByCep(cep: String): CepAddress? {
         val digits = cep.filter { it.isDigit() }
         if (digits.length != 8) return null
-        return try {
+        // ViaCEP
+        try {
             val response: HttpResponse = client.get("https://viacep.com.br/ws/$digits/json/")
+            if (response.status.isSuccess()) {
+                val obj = json.parseToJsonElement(response.bodyAsText()).jsonObject
+                val isError = (obj["erro"] as? JsonPrimitive)?.booleanOrNull == true
+                if (!isError) {
+                    return CepAddress(
+                        cep = digits,
+                        street = obj.optString("logradouro"),
+                        neighborhood = obj.optString("bairro"),
+                        city = obj.optString("localidade"),
+                        state = obj.optString("uf")
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            // cai para o fallback abaixo
+        }
+        // BrasilAPI (v2) — mesmos campos, nomes diferentes.
+        return try {
+            val response: HttpResponse = client.get("https://brasilapi.com.br/api/cep/v2/$digits")
             if (!response.status.isSuccess()) return null
             val obj = json.parseToJsonElement(response.bodyAsText()).jsonObject
-            val isError = (obj["erro"] as? JsonPrimitive)?.booleanOrNull == true
-            if (isError) null
-            else CepAddress(
+            if (obj.optString("cep").isBlank()) return null
+            CepAddress(
                 cep = digits,
-                street = obj.optString("logradouro"),
-                neighborhood = obj.optString("bairro"),
-                city = obj.optString("localidade"),
-                state = obj.optString("uf")
+                street = obj.optString("street"),
+                neighborhood = obj.optString("neighborhood"),
+                city = obj.optString("city"),
+                state = obj.optString("state")
             )
         } catch (_: Exception) {
             null
