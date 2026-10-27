@@ -33,8 +33,8 @@ class SignupStepsTest {
     @Test
     fun passwordRules_requireAllFive() {
         assertEquals(listOf(false, false, false, false, false), passwordRules(""))
-        assertEquals(listOf(true, false, false, false, false), passwordRules("abcdefgh"))
-        assertEquals(listOf(true, true, false, false, false), passwordRules("Abcdefgh"))
+        assertEquals(listOf(true, false, true, false, false), passwordRules("abcdefgh"))
+        assertEquals(listOf(true, true, false, false, false), passwordRules("ABCDEFGH"))
         assertEquals(listOf(true, true, true, false, false), passwordRules("Abcdefgh"))
         assertEquals(listOf(true, true, true, true, false), passwordRules("Abcdefg1"))
         assertEquals(listOf(true, true, true, true, true), passwordRules("Abcdef1!"))
