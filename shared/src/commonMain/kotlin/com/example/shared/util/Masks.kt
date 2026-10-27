@@ -116,4 +116,11 @@ object Masks {
         val digits = phone.filter { it.isDigit() }
         return digits.length in 10..11
     }
+
+    /** Formata o CEP como `XXXXX-XXX` (igual ao `formatCep` da web). */
+    fun formatCep(input: String): String {
+        val digits = input.filter { it.isDigit() }.take(8)
+        if (digits.length <= 5) return digits
+        return "${digits.take(5)}-${digits.drop(5)}"
+    }
 }
