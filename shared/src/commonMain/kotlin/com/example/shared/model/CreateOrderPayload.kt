@@ -54,25 +54,32 @@ fun parseCreateOrderResult(text: String): CreateOrderResult? {
     return try {
         val obj = when (val el = rpcJson.parseToJsonElement(text)) {
             is JsonObject -> el
-            is JsonArray -> el.firstOrNull()?.jsonObject
+            is JsonArray -> el.firstOrNull() as? JsonObject
             else -> null
         } ?: return null
-        val orderId = obj["order_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val orderId = obj.str("order_id")?.trim().orEmpty()
         if (orderId.isBlank()) return null
         CreateOrderResult(
             orderId = orderId,
-            orderNumber = obj["order_number"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
-            status = obj["status"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-            subtotal = obj["subtotal"]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull() ?: 0.0,
-            deliveryFee = obj["delivery_fee"]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull() ?: 0.0,
-            totalPrice = obj["total_price"]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull() ?: 0.0,
-            walletDiscount = obj["wallet_discount"]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull() ?: 0.0,
-            deliveryPin = obj["delivery_pin"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-            isNew = obj["is_new"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: true
+            orderNumber = obj.str("order_number")?.toIntOrNull(),
+            status = obj.str("status").orEmpty(),
+            subtotal = obj.str("subtotal")?.toDoubleOrNull() ?: 0.0,
+            deliveryFee = obj.str("delivery_fee")?.toDoubleOrNull() ?: 0.0,
+            totalPrice = obj.str("total_price")?.toDoubleOrNull() ?: 0.0,
+            walletDiscount = obj.str("wallet_discount")?.toDoubleOrNull() ?: 0.0,
+            deliveryPin = obj.str("delivery_pin").orEmpty(),
+            isNew = obj.str("is_new")?.toBooleanStrictOrNull() ?: true
         )
     } catch (_: Exception) {
         null
     }
+}
+
+/** Conteúdo textual de um campo (string, número ou booleano); null se ausente ou null JSON. */
+private fun JsonObject.str(key: String): String? {
+    val el = this[key] ?: return null
+    if (el is JsonNull) return null
+    return (el as? JsonPrimitive)?.content
 }
 
 /** Entrada do montador (mesmos campos do `BuildCreateOrderInput` da web). */
@@ -213,4 +220,5 @@ fun buildCreateOrderPayload(input: BuildCreateOrderInput): JsonObject? {
  * retorna `is_new=false`). Gerar UMA vez por checkout e reutilizar no
  * retry — nunca gerar uma chave nova por tentativa.
  */
+@OptIn(kotlin.uuid.ExperimentalUuidApi::class)
 fun newIdempotencyKey(): String = Uuid.random().toString()
