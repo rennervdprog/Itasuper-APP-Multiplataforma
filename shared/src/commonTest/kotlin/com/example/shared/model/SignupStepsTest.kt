@@ -38,7 +38,7 @@ class SignupStepsTest {
         assertEquals(listOf(true, true, true, false, false), passwordRules("Abcdefgh"))
         assertEquals(listOf(true, true, true, true, false), passwordRules("Abcdefg1"))
         assertEquals(listOf(true, true, true, true, true), passwordRules("Abcdef1!"))
-        assertEquals(5, passwordRulesPassedCount("Senha1!"))
+        assertEquals(5, passwordRulesPassedCount("Senha123!"))
         assertEquals(0, passwordRulesPassedCount(""))
     }
 
