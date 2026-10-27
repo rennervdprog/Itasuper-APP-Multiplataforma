@@ -56,6 +56,14 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: ./gradlew :androidApp:assembleDebug --stacktrace
 
+      # Guarda contra o crash do v13 (2026-10-26): o manifesto apontava a
+      # Activity inicial para uma classe que não existia no DEX, e o CI
+      # passava verde — o manifest merger não valida a existência da classe.
+      - name: Verify manifest components exist in DEX
+        run: |
+          APK=$(ls androidApp/build/outputs/apk/debug/*.apk | head -n 1)
+          python3 scripts/check_manifest_dex.py "$APK"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
