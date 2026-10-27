@@ -44,9 +44,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.shared.model.DriverLocation
 import com.example.shared.model.Order
+import com.example.shared.model.TRACKING_POLL_MS
+import com.example.shared.model.guestOrderStatusLabel
+import com.example.shared.model.isTerminalOrderStatus
 import com.example.shared.network.SupabaseApi
 import com.example.shared.platform.TrackingMapView
 import com.example.shared.session.UserSessionRepository
@@ -73,9 +77,24 @@ import kotlinx.datetime.toInstant
 @Composable
 fun DeliveryTrackingScreen(
     orderId: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    // Fase 4 (G7/G9): rastreio guest — com os últimos 4 dígitos, a tela
+    // usa a edge pública `guest-order-status` em vez da lista do cliente.
+    guestLast4: String? = null,
+    onGoToLogin: () -> Unit = {},
+    onOpenUrl: (String) -> Boolean = { false }
 ) {
     val session by UserSessionRepository.session.collectAsState()
+    if (guestLast4 != null) {
+        GuestTrackingDetail(
+            orderId = orderId,
+            last4 = guestLast4,
+            onBack = onBack,
+            onGoToLogin = onGoToLogin,
+            onOpenUrl = onOpenUrl
+        )
+        return
+    }
     var orders by remember { mutableStateOf<List<Order>>(emptyList()) }
     LaunchedEffect(session.userId) {
         if (session.userId.isNotBlank() && session.accessToken.isNotBlank()) {
@@ -89,6 +108,26 @@ fun DeliveryTrackingScreen(
     val order = remember(orderId, orders) { orders.find { it.id == orderId } }
     var driverLocation by remember { mutableStateOf<DriverLocation?>(null) }
     var isLoading by remember { mutableStateOf(true) }
+
+    // Fase 4 (4A): refresh do pedido — a tela re-busca o pedido a cada
+    // 20 s (mesmo intervalo da web e do polling de posição) e para quando
+    // o pedido chega a estado final. Antes a lista era buscada 1× ao abrir
+    // e o status nunca mudava sem fechar e abrir de novo.
+    LaunchedEffect(orderId) {
+        val token = session.accessToken
+        if (token.isBlank()) return@LaunchedEffect
+        while (isActive) {
+            delay(TRACKING_POLL_MS)
+            try {
+                val fresh = SupabaseApi.fetchSingleOrder(orderId, token) ?: continue
+                orders = orders.map { if (it.id == orderId) fresh else it }
+                    .ifEmpty { listOf(fresh) }
+                if (isTerminalOrderStatus(fresh.status)) break
+            } catch (_: Throwable) {
+                // Falha transitória: tenta de novo no próximo ciclo.
+            }
+        }
+    }
 
     // Localização do entregador em driver_locations (JWT do cliente), com
     // polling de 20s igual ao original. Falha mantém a última posição boa.
@@ -166,6 +205,19 @@ fun DeliveryTrackingScreen(
                             )
                         }
                         Spacer(Modifier.height(8.dp))
+                        // Fase 4 (4A): o status visível — sem ele o refresh
+                        // não dá pra perceber na tela. Rótulos iguais aos da web.
+                        Text(
+                            guestOrderStatusLabel(order.status),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = when (order.status.lowercase()) {
+                                "entregue", "finalizado" -> Color(0xFF16A34A)
+                                "cancelado" -> Color(0xFFD32F2F)
+                                else -> ItaSuperPrimary
+                            },
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Filled.LocationOn, null, tint = Color(0xFF737373), modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
@@ -228,6 +280,13 @@ fun DeliveryTrackingScreen(
                     }
                 }
                 Spacer(Modifier.height(16.dp))
+                Text(
+                    "Esta tela atualiza sozinha a cada 20s.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF737373),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }

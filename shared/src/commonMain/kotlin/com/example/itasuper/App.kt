@@ -42,6 +42,7 @@ import com.example.shared.ui.legal.LegalConsentGate
 import com.example.shared.ui.legal.rememberLegalConsentState
 import com.example.shared.ui.notifications.NotificationsScreen
 import com.example.shared.ui.orders.DeliveryTrackingScreen
+import com.example.shared.ui.orders.GuestTrackingScreen
 import com.example.shared.ui.orders.OrdersScreen
 import com.example.shared.ui.permissions.LocationOnboardingPreferences
 import com.example.shared.ui.permissions.LocationPermissionOnboarding
@@ -189,13 +190,15 @@ fun App() {
                     val storeDetailId = navigator.storeDetailId
                     val storeInfoId = navigator.storeInfoId
                     val trackingOrderId = navigator.trackingOrderId
+                    val guestTrackingFormOpen = navigator.guestTrackingFormOpen
+                    val openUrl = rememberUrlOpener()
                     val fullScreenCartFlow = navigator.currentScreen == AppScreen.CART ||
                             navigator.currentScreen == AppScreen.CHECKOUT
                     Scaffold(
                         bottomBar = {
                             // Vitrine, "Sobre a loja", rastreio e fluxo do carrinho ocupam a tela toda
                             // (têm botão voltar próprio).
-                            if (storeDetailId == null && storeInfoId == null && trackingOrderId == null && !fullScreenCartFlow) {
+                            if (storeDetailId == null && storeInfoId == null && trackingOrderId == null && !guestTrackingFormOpen && !fullScreenCartFlow) {
                                 ItaSuperBottomNavBar(
                                     currentScreen = navigator.currentScreen,
                                     onNavigate = { navigator.navigateTo(it) }
@@ -241,11 +244,12 @@ fun App() {
                         // início). Sem isto, o voltar fechava o app de
                         // qualquer tela. Na tela inicial, o voltar segue
                         // fechando o app (comportamento normal do Android).
-                        val canNavigateBack = trackingOrderId != null || storeInfoId != null ||
+                        val canNavigateBack = guestTrackingFormOpen || trackingOrderId != null || storeInfoId != null ||
                                 storeDetailId != null || fullScreenCartFlow ||
                                 navigator.currentScreen != AppScreen.HOME
                         PlatformBackHandler(enabled = canNavigateBack) {
                             when {
+                                guestTrackingFormOpen -> navigator.closeGuestTrackingForm()
                                 trackingOrderId != null -> navigator.closeTracking()
                                 storeInfoId != null -> navigator.closeStoreInfo()
                                 storeDetailId != null -> navigator.closeStore()
@@ -255,11 +259,23 @@ fun App() {
                             }
                         }
                         Box(modifier = contentModifier) {
-                            if (trackingOrderId != null) {
+                            if (guestTrackingFormOpen) {
+                                // Fase 4 (G7): formulário do rastreio guest.
+                                GuestTrackingScreen(
+                                    onBack = { navigator.closeGuestTrackingForm() },
+                                    onTrackGuest = { id, last4 -> navigator.openGuestTracking(id, last4) }
+                                )
+                            } else if (trackingOrderId != null) {
                                 // Rastreio da entrega (a partir do pedido em andamento).
                                 DeliveryTrackingScreen(
                                     orderId = trackingOrderId,
-                                    onBack = { navigator.closeTracking() }
+                                    onBack = { navigator.closeTracking() },
+                                    guestLast4 = navigator.trackingGuestLast4,
+                                    onGoToLogin = {
+                                        navigator.closeTracking()
+                                        navigator.navigateTo(AppScreen.AUTH)
+                                    },
+                                    onOpenUrl = openUrl
                                 )
                             } else if (storeInfoId != null) {
                                 // "Sobre a loja" abre por cima da vitrine (loja real via API).
@@ -331,6 +347,7 @@ fun App() {
                                     AppScreen.ORDERS -> OrdersScreen(
                                         onExploreClick = { navigator.navigateTo(AppScreen.HOME) },
                                         onTrackDelivery = { navigator.openTracking(it) },
+                                        onTrackGuest = { navigator.openGuestTrackingForm() },
                                         cart = cartState,
                                         onNavigateToCart = { navigator.navigateTo(AppScreen.CART) }
                                     )

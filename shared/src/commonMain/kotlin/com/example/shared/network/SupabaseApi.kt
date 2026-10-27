@@ -30,6 +30,10 @@ import com.example.shared.model.buildClaimVerifyOtpBody
 import com.example.shared.model.parseClaimCheckResponse
 import com.example.shared.model.parseClaimSendOtpResponse
 import com.example.shared.model.parseClaimVerifyOtpResponse
+import com.example.shared.model.ClaimGuestAccountResult
+import com.example.shared.model.GuestOrderStatusResult
+import com.example.shared.model.parseClaimGuestAccountResponse
+import com.example.shared.model.parseGuestOrderStatusResponse
 import com.example.shared.model.normalizeBrazilianUf
 import com.example.shared.model.parseCreateOrderResult
 import com.example.shared.model.Coupon
@@ -71,6 +75,7 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
@@ -1131,51 +1136,86 @@ object SupabaseApi {
             val storesById = fetchStoreNames(storeIds, accessToken)
             val itemsByOrder = fetchOrderItems(orderIds, accessToken)
 
-            ordersArray.mapNotNull { el ->
-                try {
-                    val item = el.jsonObject
-                    val id = item.optString("id")
-                    val storeId = item.optString("store_id")
-                    if (id.isBlank() || storeId.isBlank()) return@mapNotNull null
-                    Order(
-                        id = id,
-                        storeId = storeId,
-                        storeName = storesById[storeId].orEmpty(),
-                        items = itemsByOrder[id].orEmpty(),
-                        subtotal = item.optDouble("subtotal", 0.0),
-                        deliveryFee = item.optDouble("delivery_fee", 0.0),
-                        discount = item.optDouble("discount", item.optDouble("coupon_discount", 0.0)),
-                        walletDiscount = item.optDouble("wallet_discount", 0.0),
-                        loyaltyPointsUsed = item.optInt("loyalty_points_used", 0),
-                        loyaltyDiscount = item.optDouble("loyalty_discount", 0.0),
-                        total = item.optDouble("total_price", 0.0),
-                        paymentMethod = item.optString("payment_method"),
-                        deliveryAddress = item.optString("address_details"),
-                        status = item.optString("status", "pendente"),
-                        createdAt = item.optString("created_at"),
-                        confirmedAt = item.optString("confirmed_at"),
-                        refundRequestExpiresAt = item.optString("refund_request_expires_at"),
-                        pixExpiresAt = item.optString("pix_expires_at"),
-                        deliveryPin = item.optString("delivery_pin"),
-                        neighborhood = item.optString("neighborhood"),
-                        deliveryCep = item.optString("delivery_cep"),
-                        deliveryCity = item.optString("delivery_city"),
-                        deliveryState = item.optString("delivery_state"),
-                        clientLatitude = item.optFiniteDouble("client_lat"),
-                        clientLongitude = item.optFiniteDouble("client_lng"),
-                        deliveryFeeAbsorbedByStore = item.optDouble("delivery_fee_absorbed_by_store", 0.0),
-                        deliveryQuoteSnapshot = item.optJsonObject("metadata")
-                            ?.optJsonObject("delivery_quote")
-                            ?.toDeliveryQuoteSnapshot(),
-                        driverId = item.optString("driver_id", item.optString("assigned_driver_id")),
-                        deliveryConfirmedByClient = item.optBoolean("delivery_confirmed_by_client", false),
-                        scheduledFor = item.optString("scheduled_for"),
-                        releaseAt = item.optString("release_at")
-                    )
-                } catch (_: Exception) { null }
-            }
+            ordersArray.mapNotNull { el -> mapOrderJson(el, storesById, itemsByOrder) }
         } catch (_: Exception) {
             emptyList()
+        }
+    }
+
+    /**
+     * Um pedido só, pelo id — usado pelo refresh do rastreio (Fase 4):
+     * a tela re-busca o pedido a cada 20 s sem re-baixar a lista inteira.
+     * Mesmo select + nomes + itens do `fetchOrdersForClient`.
+     */
+    suspend fun fetchSingleOrder(orderId: String, accessToken: String): Order? {
+        if (orderId.isBlank() || accessToken.isBlank()) return null
+        return try {
+            val (ok, text) = restGetRaw(
+                "$SUPABASE_URL/rest/v1/orders?select=*&id=eq.$orderId",
+                bearer = accessToken
+            )
+            if (!ok || text.isBlank()) return null
+            val ordersArray = parseArray(text)
+            if (ordersArray.isEmpty()) return null
+            val first = ordersArray.first().jsonObject
+            val storeId = first.optString("store_id")
+            if (storeId.isBlank()) return null
+            val storesById = fetchStoreNames(listOf(storeId), accessToken)
+            val itemsByOrder = fetchOrderItems(listOf(orderId), accessToken)
+            mapOrderJson(ordersArray.first(), storesById, itemsByOrder)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Mapeia uma linha de `orders` para `Order` (extraído do `fetchOrdersForClient`). */
+    private fun mapOrderJson(
+        el: JsonElement,
+        storesById: Map<String, String>,
+        itemsByOrder: Map<String, List<CartItem>>
+    ): Order? {
+        return try {
+            val item = el.jsonObject
+            val id = item.optString("id")
+            val storeId = item.optString("store_id")
+            if (id.isBlank() || storeId.isBlank()) return null
+            Order(
+                id = id,
+                storeId = storeId,
+                storeName = storesById[storeId].orEmpty(),
+                items = itemsByOrder[id].orEmpty(),
+                subtotal = item.optDouble("subtotal", 0.0),
+                deliveryFee = item.optDouble("delivery_fee", 0.0),
+                discount = item.optDouble("discount", item.optDouble("coupon_discount", 0.0)),
+                walletDiscount = item.optDouble("wallet_discount", 0.0),
+                loyaltyPointsUsed = item.optInt("loyalty_points_used", 0),
+                loyaltyDiscount = item.optDouble("loyalty_discount", 0.0),
+                total = item.optDouble("total_price", 0.0),
+                paymentMethod = item.optString("payment_method"),
+                deliveryAddress = item.optString("address_details"),
+                status = item.optString("status", "pendente"),
+                createdAt = item.optString("created_at"),
+                confirmedAt = item.optString("confirmed_at"),
+                refundRequestExpiresAt = item.optString("refund_request_expires_at"),
+                pixExpiresAt = item.optString("pix_expires_at"),
+                deliveryPin = item.optString("delivery_pin"),
+                neighborhood = item.optString("neighborhood"),
+                deliveryCep = item.optString("delivery_cep"),
+                deliveryCity = item.optString("delivery_city"),
+                deliveryState = item.optString("delivery_state"),
+                clientLatitude = item.optFiniteDouble("client_lat"),
+                clientLongitude = item.optFiniteDouble("client_lng"),
+                deliveryFeeAbsorbedByStore = item.optDouble("delivery_fee_absorbed_by_store", 0.0),
+                deliveryQuoteSnapshot = item.optJsonObject("metadata")
+                    ?.optJsonObject("delivery_quote")
+                    ?.toDeliveryQuoteSnapshot(),
+                driverId = item.optString("driver_id", item.optString("assigned_driver_id")),
+                deliveryConfirmedByClient = item.optBoolean("delivery_confirmed_by_client", false),
+                scheduledFor = item.optString("scheduled_for"),
+                releaseAt = item.optString("release_at")
+            )
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -2397,6 +2437,49 @@ object SupabaseApi {
         )
         val (_, text) = restPostRaw("$SUPABASE_URL/functions/v1/claim-verify-otp", body)
         return parseClaimVerifyOtpResponse(text)
+    }
+
+    // ------------------------------------------------------------------
+    // (g) RASTREIO GUEST + REIVINDICAR NA TELA DE ACOMPANHAMENTO — Fase 4 (G7/G9)
+    // ------------------------------------------------------------------
+
+    /**
+     * `guest-order-status`: consulta pública do pedido guest (GET anônima).
+     * O erro vem no corpo (`{error}`): `not_found` (pedido inexistente,
+     * não guest ou últimos-4 errados), `rate_limited` (o 429 do servidor —
+     * 10+ erradas/10 min por pedido ou 30+/10 min por IP; o correto sempre
+     * passa), `invalid_params`. O parse não depende do `ok` do HTTP.
+     */
+    suspend fun fetchGuestOrderStatus(orderId: String, last4: String): GuestOrderStatusResult? {
+        val cleanLast4 = last4.filter { it.isDigit() }
+        if (orderId.isBlank() || cleanLast4.length != 4) {
+            return GuestOrderStatusResult(error = "invalid_params")
+        }
+        val (_, text) = restGetRaw(
+            "$SUPABASE_URL/functions/v1/guest-order-status?order_id=$orderId&last4=$cleanLast4"
+        )
+        return parseGuestOrderStatusResponse(text)
+    }
+
+    /**
+     * `claim-guest-account`: converte o guest deste pedido em conta de
+     * verdade (POST anônima). A prova de posse é o próprio rastreio +
+     * últimos 4 — a mesma que já libera o rastreio e o PIN.
+     */
+    suspend fun claimGuestAccount(
+        orderId: String,
+        last4: String,
+        email: String,
+        password: String
+    ): ClaimGuestAccountResult? {
+        val body = buildJsonObject {
+            putStr("order_id", orderId)
+            putStr("last4", last4.filter { it.isDigit() })
+            putStr("email", email.trim().lowercase())
+            putStr("password", password)
+        }.toString()
+        val (_, text) = restPostRaw("$SUPABASE_URL/functions/v1/claim-guest-account", body)
+        return parseClaimGuestAccountResponse(text)
     }
 
     /** Atualiza nome e documento do perfil. */
