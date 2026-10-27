@@ -64,6 +64,58 @@ class PizzaPricingTest {
         assertEquals(0.0, PizzaPricing.combinePricesByMode(emptyList(), "maior"), 0.001)
     }
 
+    // --- G12 (Fase 5): montador com modo ausente vale a média, como o servidor ---
+
+    @Test
+    fun builderModoAusenteValeAMedia() {
+        // RPC create_order_expected_item_price (20261026070000): no montador,
+        // só "maior" vale o maior — outro/ausente vale a média. Antes da Fase 5
+        // o app tratava ausente como "maior" e o pedido era recusado pela RPC
+        // ("Preço do item divergente do catálogo").
+        assertEquals(73.323, PizzaPricing.combineBuilderPrices(listOf(64.99, 74.99, 79.99), null), 0.001)
+    }
+
+    @Test
+    fun builderMaiorValeOMaior() {
+        assertEquals(79.99, PizzaPricing.combineBuilderPrices(listOf(64.99, 74.99, 79.99), "maior"), 0.001)
+    }
+
+    @Test
+    fun builderSomaEMediaValemAMedia() {
+        assertEquals(73.323, PizzaPricing.combineBuilderPrices(listOf(64.99, 74.99, 79.99), "soma"), 0.001)
+        assertEquals(73.323, PizzaPricing.combineBuilderPrices(listOf(64.99, 74.99, 79.99), "media"), 0.001)
+    }
+
+    @Test
+    fun builderVazioValeZero() {
+        assertEquals(0.0, PizzaPricing.combineBuilderPrices(emptyList(), null), 0.001)
+    }
+
+    @Test
+    fun g12ModalModoAusenteSomaOsSabores() {
+        // No modal, modo ausente NÃO é "maior": o servidor soma os lineTotals
+        // do grupo (RPC 20261026070000, caminho v_has_repl). 3 sabores +
+        // borda = 219,97 + 9,99.
+        val item = CartItem(
+            product = pizza(0.0),
+            quantity = 1,
+            selectedAddons = tresSabores + normal("borda", "b1", 9.99),
+            priceMode = null
+        )
+        assertEquals(229.96, item.unitPrice, 0.001)
+    }
+
+    @Test
+    fun g12ModalModoAusenteSomaDuplicadoDuasVezes() {
+        // Sem "maior" não há dedupe: o mesmo sabor 2x soma 2x (lineTotals).
+        val addons = listOf(
+            flavor("sabores", "f3", 79.99),
+            flavor("sabores", "f3", 79.99)
+        )
+        val item = CartItem(product = pizza(0.0), quantity = 1, selectedAddons = addons, priceMode = null)
+        assertEquals(159.98, item.unitPrice, 0.001)
+    }
+
     // --- G1: item montado não soma os adicionais de novo ---
 
     @Test

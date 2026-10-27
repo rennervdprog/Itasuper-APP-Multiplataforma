@@ -14,10 +14,17 @@ data class StoreSettings(
     val pizzaMaxFlavors: Int = 4,
     val pastelMaxFlavors: Int = 4,
     val pastelMaxComplements: Int = 3,
-    val pizzaPriceMode: String = "maior",
+    /**
+     * Regra de preço da loja (settings.pizza_price_mode / pastel_price_mode).
+     * NULL quando a loja não configurou — e NULL NÃO é "maior": o servidor
+     * (RPC create_order_expected_item_price, 20261026070000) trata modo
+     * ausente como média no montador e soma no modal. O painel mostra
+     * "Maior valor" como rótulo, mas o preço que vale é o do servidor (G12).
+     */
+    val pizzaPriceMode: String? = null,
     val pizzaSizesCatalog: List<PizzaSizeCatalogItem> = emptyList(),
     val pizzaPriceMatrix: Map<String, Map<String, Double>> = emptyMap(),
-    val pastelPriceMode: String = "maior",
+    val pastelPriceMode: String? = null,
     val pizzaSingleSize: Boolean = false,
     val pastelSingleSize: Boolean = false,
     val acceptPixOnline: Boolean = false,
