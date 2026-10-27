@@ -256,6 +256,8 @@ private fun isWithinRatingWindow(createdAt: String): Boolean {
 fun OrdersScreen(
     onExploreClick: () -> Unit = {},
     onTrackDelivery: (orderId: String) -> Unit = {},
+    // Fase 4 (G7): rastreio guest — pedido feito sem login, com código + últimos 4.
+    onTrackGuest: () -> Unit = {},
     cart: CartHolder? = null,
     onNavigateToCart: () -> Unit = {}
 ) {
@@ -699,7 +701,7 @@ fun OrdersScreen(
             windowInsets = WindowInsets(0, 0, 0, 0)
 )
         if (orders.isEmpty()) {
-            EmptyOrdersState(onExploreClick)
+            EmptyOrdersState(onExploreClick, onTrackGuest)
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -829,6 +831,16 @@ fun OrdersScreen(
                     }
                 }
                 item { Spacer(Modifier.height(16.dp)) }
+                // Fase 4 (G7): rastreio guest — também para quem já tem pedidos.
+                item {
+                    TextButton(
+                        onClick = onTrackGuest,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                    ) {
+                        Text("Acompanhar pedido sem login", fontWeight = FontWeight.Bold, color = ItaSuperPrimary)
+                    }
+                }
+                item { Spacer(Modifier.height(16.dp)) }
             }
         }
     }
@@ -883,7 +895,7 @@ private fun OrdersFilterBar(
 }
 
 @Composable
-private fun EmptyOrdersState(onExploreClick: () -> Unit) {
+private fun EmptyOrdersState(onExploreClick: () -> Unit, onTrackGuest: () -> Unit = {}) {
     Box(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         contentAlignment = Alignment.Center
@@ -908,6 +920,10 @@ private fun EmptyOrdersState(onExploreClick: () -> Unit) {
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth(0.8f).height(48.dp)
             ) { Text("Explorar lojas", fontWeight = FontWeight.Bold) }
+            Spacer(Modifier.height(12.dp))
+            TextButton(onClick = onTrackGuest) {
+                Text("Acompanhar pedido com código", fontWeight = FontWeight.Bold, color = ItaSuperPrimary)
+            }
         }
     }
 }

@@ -14,3 +14,6 @@ DerivedData/
 .idea/
 *.iml
 .DS_Store
+
+# Bytecode Python gerado localmente (ex.: check_manifest_dex.py)
+__pycache__/

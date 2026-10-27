@@ -51,6 +51,17 @@ class AppNavigator {
     var trackingOrderId by mutableStateOf<String?>(null)
         private set
 
+    /**
+     * Fase 4 (G7): últimos 4 dígitos do WhatsApp do pedido guest em
+     * rastreio; null = rastreio do cliente logado (lista de pedidos).
+     */
+    var trackingGuestLast4 by mutableStateOf<String?>(null)
+        private set
+
+    /** Fase 4 (G7): formulário "Acompanhar pedido" (rastreio guest); false = fechado. */
+    var guestTrackingFormOpen by mutableStateOf(false)
+        private set
+
     fun navigateTo(screen: AppScreen) {
         currentScreen = screen
     }
@@ -75,10 +86,26 @@ class AppNavigator {
 
     fun openTracking(orderId: String) {
         trackingOrderId = orderId
+        trackingGuestLast4 = null
+    }
+
+    fun openGuestTracking(orderId: String, last4: String) {
+        guestTrackingFormOpen = false
+        trackingOrderId = orderId
+        trackingGuestLast4 = last4
+    }
+
+    fun openGuestTrackingForm() {
+        guestTrackingFormOpen = true
+    }
+
+    fun closeGuestTrackingForm() {
+        guestTrackingFormOpen = false
     }
 
     fun closeTracking() {
         trackingOrderId = null
+        trackingGuestLast4 = null
     }
 }
 
