@@ -19,10 +19,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Clock
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Message
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Button
@@ -298,7 +298,7 @@ fun GuestTrackingDetail(
                         when (orderStatus) {
                             "entregue", "finalizado" -> Icons.Filled.CheckCircle
                             "saiu_para_entrega", "saiu_entrega", "em_transito" -> Icons.Filled.LocalShipping
-                            else -> Icons.Filled.Clock
+                            else -> Icons.Filled.Schedule
                         },
                         null, tint = statusColor, modifier = Modifier.size(40.dp)
                     )
