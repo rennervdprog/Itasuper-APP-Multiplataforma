@@ -138,7 +138,7 @@ private data class PendingAdd(
     val quantity: Int,
     val notes: String,
     val addons: List<SelectedAddonItem>,
-    val priceMode: String = "maior"
+    val priceMode: String? = null
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -220,6 +220,10 @@ fun StoreDetailScreen(
         isLoadingProducts = true
         try {
             products = SupabaseApi.fetchProductsForStore(storeId)
+                // 3b: a vitrine da web (StorePage.tsx, displayProducts) esconde
+                // indisponível — o fetch já filtra no servidor; isto cobre
+                // cache/outro caminho, como o front faz ("cobre o cache antigo").
+                .filter { it.isAvailable }
         } catch (_: Throwable) {
             products = emptyList()
         }
@@ -353,14 +357,22 @@ fun StoreDetailScreen(
     var showStoreSwitch by remember(storeId) { mutableStateOf(false) }
     // Aviso do bloqueio de farmácia (no original é snackbar com este texto).
     var showPharmacyBlockedMessage by remember { mutableStateOf(false) }
+    var showUnbuyableMessage by remember { mutableStateOf(false) }
 
     fun requestAdd(
         product: Product,
         quantity: Int = 1,
         notes: String = "",
         addons: List<SelectedAddonItem> = emptyList(),
-        priceMode: String = "maior"
+        priceMode: String? = null
     ) {
+        // 3b: indisponível ou preço zero não pode ser comprado (a web
+        // desabilita o botão — StorePage.tsx isUnavailable/isBlocked).
+        // A lista já esconde indisponível; isto cobre deep-link/modal.
+        if (!PizzaPricing.isBuiltProduct(product) && (!product.isAvailable || product.price <= 0.0)) {
+            showUnbuyableMessage = true
+            return
+        }
         if (cart.isPharmacyBlocked(product)) {
             showPharmacyBlockedMessage = true
         } else if (cart.isSwitchingStore(product)) {
@@ -886,6 +898,20 @@ fun StoreDetailScreen(
             text = { Text("Este item não pode ser adicionado à sacola.") },
             confirmButton = {
                 TextButton(onClick = { showPharmacyBlockedMessage = false }) {
+                    Text("Entendi")
+                }
+            }
+        )
+    }
+
+    // Produto indisponível ou sem preço (3b): a vitrine da web desabilita a
+    // compra nesses casos (StorePage.tsx isUnavailable/isBlocked).
+    if (showUnbuyableMessage) {
+        AlertDialog(
+            onDismissRequest = { showUnbuyableMessage = false },
+            text = { Text("Este produto não está disponível para compra no momento.") },
+            confirmButton = {
+                TextButton(onClick = { showUnbuyableMessage = false }) {
                     Text("Entendi")
                 }
             }
@@ -1931,7 +1957,8 @@ private fun ProductDetailSheetContent(
  *  N+2. Borda (pizza) — se a loja tiver
  *  Final. Observações + quantidade + "Adicionar"
  *
- * Preço: "maior" (maior sabor) ou "media" (média dos sabores), conforme a loja.
+ * Preço: só "maior" vale o maior sabor; "media"/"soma" e a ausência do
+ * modo valem a média dos sabores (regra do servidor, RPC 20261026070000).
  */
 @Composable
 private fun PizzaBuilderSheetContent(
@@ -2092,9 +2119,11 @@ private fun PizzaBuilderSheetContent(
     fun calcBasePrice(): Double {
         if (!allChosen) return 0.0
         val prices = selectedFlavors.map { priceForFlavor(it!!) }
-        // Montador da web (PizzaHalfHalfModal): combinePricesByMode — "media"
-        // e "soma" tiram a média; qualquer outro modo vale o maior (1D).
-        return PizzaPricing.combinePricesByMode(prices, priceMode)
+        // Montador da web (PizzaHalfHalfModal) + RPC (20261026070000):
+        // só "maior" vale o maior; qualquer outro modo E a ausência valem a
+        // média dos sabores (G12 — combineBuilderPrices, não
+        // combinePricesByMode, que trata ausente como maior).
+        return PizzaPricing.combineBuilderPrices(prices, priceMode)
     }
 
     val basePrice = calcBasePrice()
@@ -2259,7 +2288,10 @@ private fun PizzaBuilderSheetContent(
                     itemName = a.name,
                     itemPrice = a.price,
                     groupId = a.groupId,
-                    groupName = "Adicionais"
+                    groupName = "Adicionais",
+                    // G11: repassa o price_replaces_base do grupo do sabor —
+                    // antes caía no default false e o adicional ia como normal.
+                    priceReplacesBase = addonGroups.firstOrNull { g -> g.items.any { it.id == a.id } }?.priceReplacesBase ?: false
                 )
             )
         }

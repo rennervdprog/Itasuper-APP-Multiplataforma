@@ -72,7 +72,8 @@ data class PizzaAddonGroup(
     val minSelect: Int = 0,
     val maxSelect: Int = 99,
     val priceReplacesBase: Boolean = false,
-    val items: List<AddonItem> = emptyList()
+    val items: List<AddonItem> = emptyList(),
+    val sortOrder: Int = 0
 )
 
 data class PizzaLegacySize(
@@ -120,10 +121,12 @@ data class CartItem(
     val selectedAddons: List<SelectedAddonItem> = emptyList(),
     /**
      * Regra de preço da loja (settings.pizza_price_mode). Só afeta grupos
-     * price_replaces_base no modal de produto (1B/1D). O default "maior"
-     * preserva o comportamento anterior nos demais caminhos.
+     * price_replaces_base no modal de produto (1B/1D). NULL quando a loja
+     * não configurou — e NULL NÃO é "maior": o servidor soma os lineTotals
+     * do grupo quando o modo não é "maior" (RPC 20261026070000). O default
+     * null preserva o comportamento do servidor nos demais caminhos (G12).
      */
-    val priceMode: String = "maior"
+    val priceMode: String? = null
 ) {
     val unitPrice: Double
         get() {

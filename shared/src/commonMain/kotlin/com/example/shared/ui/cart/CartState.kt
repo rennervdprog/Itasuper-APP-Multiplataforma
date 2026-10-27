@@ -415,8 +415,8 @@ class CartHolder {
         notes: String = "",
         addons: List<SelectedAddonItem> = emptyList(),
         storeName: String = "",
-        /** Regra de preço da loja (settings.pizza_price_mode) — afeta só grupos price_replaces_base (1B). */
-        priceMode: String = "maior"
+        /** Regra de preço da loja (settings.pizza_price_mode) — afeta só grupos price_replaces_base (1B). NULL = modo ausente = soma no modal (G12). */
+        priceMode: String? = null
     ): Boolean {
         if (isPharmacyBlocked(product)) return false
         if (items.isNotEmpty() && storeId != null && storeId != product.storeId) {

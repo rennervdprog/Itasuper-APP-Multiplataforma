@@ -680,8 +680,15 @@ object SupabaseApi {
                 val pixDirectInstructions = item.optString("pix_direto_instructions", "").trim()
                 val platformDeliverySplitOverride =
                     (item["platform_delivery_split_override"] as? JsonPrimitive)?.doubleOrNull
+                // Split resolvido no servidor (get_public_stores / stores_public,
+                // Fase 4 das vitrines, 25/10): override do plano > 0,99 do
+                // admin_settings; 0 quando autonomia. O override NÃO existe na
+                // view — ler ele sempre devolvia null e a taxa ficava 0,99 até
+                // p/ Duda e Águia (override 0), que a web mostra "Grátis" (3a).
+                val platformSplitEffective =
+                    (item["platform_split_effective"] as? JsonPrimitive)?.doubleOrNull
                 val isAutonomy = planType.equals("autonomy", true) || autonomyLifetimeFree
-                val platformSplit = if (isAutonomy) 0.0 else (platformDeliverySplitOverride ?: 0.99)
+                val platformSplit = if (isAutonomy) 0.0 else (platformSplitEffective ?: platformDeliverySplitOverride ?: 0.99)
                 val platformAddToCustomer = when (platformFeeSplit.lowercase()) {
                     "meio_a_meio" -> round((platformSplit / 2.0) * 100.0) / 100.0
                     "lojista" -> 0.0
@@ -788,10 +795,10 @@ object SupabaseApi {
                         ?: (settingsObj?.optInt("pastel_max_flavors", 4) ?: 4),
                     pastelMaxComplements = pastelConfig?.optInt("max_complements", 3)
                         ?: (settingsObj?.optInt("pastel_max_complements", 3) ?: 3),
-                    pizzaPriceMode = settingsObj?.optString("pizza_price_mode", "maior") ?: "maior",
+                    pizzaPriceMode = settingsObj?.optNullableString("pizza_price_mode"),
                     pizzaSizesCatalog = pizzaSizesCatalog,
                     pizzaPriceMatrix = pizzaPriceMatrix,
-                    pastelPriceMode = settingsObj?.optString("pastel_price_mode", "maior") ?: "maior",
+                    pastelPriceMode = settingsObj?.optNullableString("pastel_price_mode"),
                     pizzaSingleSize = settingsObj?.optBoolean("pizza_single_size", false) ?: false,
                     pastelSingleSize = settingsObj?.optBoolean("pastel_single_size", false) ?: false,
                     acceptPixOnline = settingsObj?.optBoolean("accept_pix_online", false) ?: false,
@@ -923,7 +930,7 @@ object SupabaseApi {
 
     suspend fun fetchProductsForStore(storeId: String): List<Product> {
         val (ok, text) = restGetRaw(
-            "$SUPABASE_URL/rest/v1/products?select=*&store_id=eq.$storeId&order=name.asc"
+            "$SUPABASE_URL/rest/v1/products?select=*&store_id=eq.$storeId&is_available=eq.true&order=name.asc"
         )
         if (!ok || text.isBlank()) return emptyList()
         return try {
@@ -2215,61 +2222,96 @@ object SupabaseApi {
     }
 
     /**
-     * Grupos de adicionais ligados aos sabores escolhidos.
-     * Deduplica por grupo (um sabor pode repetir o mesmo grupo).
+     * Grupos de adicionais dos sabores escolhidos no montador (G11, Fase 5).
+     * Espelha o fetchProductAddons da web (src/lib/productAddons.ts): os DOIS
+     * caminhos de vínculo — direto (`addon_groups.product_id`) E vinculado
+     * (`product_addon_groups`) — porque um grupo de sabor com product_id
+     * direto não aparecia no montador. Direto ganha no conflito de id
+     * (mesma regra da web); o resultado vem ordenado por sort_order.
      */
     suspend fun fetchFlavorAddonGroups(flavorIds: List<String>): List<PizzaAddonGroup> {
         if (flavorIds.isEmpty()) return emptyList()
         val idsParam = flavorIds.joinToString(",")
-        val (ok, text) = restGetRaw(
-            "$SUPABASE_URL/rest/v1/product_addon_groups" +
-                "?product_id=in.($idsParam)" +
-                "&select=addon_group:addon_groups(id,name,min_select,max_select,price_replaces_base,addon_items(id,name,price))"
-        )
-        if (!ok || text.isBlank()) return emptyList()
-        return try {
-            val seen = mutableSetOf<String>()
-            val result = mutableListOf<PizzaAddonGroup>()
-            for (element in parseArray(text)) {
-                val row = element.jsonObject
-                val groupObj = row["addon_group"]?.jsonObject ?: continue
-                val groupId = groupObj.optString("id")
-                if (groupId.isBlank() || !seen.add(groupId)) continue
-                val items = mutableListOf<AddonItem>()
-                try {
-                    val itemsArray = groupObj["addon_items"]?.jsonArray
-                    itemsArray?.forEach { itemEl ->
-                        val itemObj = itemEl.jsonObject
-                        val itemId = itemObj.optString("id")
-                        if (itemId.isNotBlank()) {
-                            items.add(
-                                AddonItem(
-                                    id = itemId,
-                                    groupId = groupId,
-                                    name = itemObj.optString("name"),
-                                    price = itemObj.optDouble("price", 0.0)
-                                )
-                            )
-                        }
-                    }
-                } catch (_: Exception) {
-                }
-                items.sortBy { it.name }
-                result.add(
-                    PizzaAddonGroup(
-                        id = groupId,
-                        name = groupObj.optString("name"),
-                        minSelect = groupObj.optInt("min_select", 0),
-                        maxSelect = groupObj.optInt("max_select", 99).takeIf { it > 0 } ?: 99,
-                        priceReplacesBase = groupObj.optBoolean("price_replaces_base", false),
-                        items = items
-                    )
-                )
-            }
-            result
+        val direct = try {
+            val (ok, text) = restGetRaw(
+                "$SUPABASE_URL/rest/v1/addon_groups" +
+                    "?product_id=in.($idsParam)" +
+                    "&select=id,name,min_select,max_select,sort_order,price_replaces_base,addon_items(id,name,price,sort_order)" +
+                    "&order=sort_order.asc"
+            )
+            if (!ok || text.isBlank()) emptyList()
+            else parseArray(text).mapNotNull { parsePizzaAddonGroup(it.jsonObject) }
         } catch (_: Exception) {
             emptyList()
         }
+        val linked = try {
+            val (ok, text) = restGetRaw(
+                "$SUPABASE_URL/rest/v1/product_addon_groups" +
+                    "?product_id=in.($idsParam)" +
+                    "&select=addon_group:addon_groups(id,name,min_select,max_select,sort_order,price_replaces_base,addon_items(id,name,price,sort_order))"
+            )
+            if (!ok || text.isBlank()) emptyList()
+            else parseArray(text).mapNotNull { row ->
+                row.jsonObject["addon_group"]?.jsonObject?.let { parsePizzaAddonGroup(it) }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+        return mergeFlavorAddonGroups(direct, linked)
+    }
+
+    /** Parser compartilhado dos dois caminhos de fetchFlavorAddonGroups. */
+    private fun parsePizzaAddonGroup(groupObj: JsonObject): PizzaAddonGroup? {
+        val groupId = groupObj.optString("id")
+        if (groupId.isBlank()) return null
+        val items = mutableListOf<AddonItem>()
+        try {
+            val itemsArray = groupObj["addon_items"]?.jsonArray
+            itemsArray?.forEach { itemEl ->
+                val itemObj = itemEl.jsonObject
+                val itemId = itemObj.optString("id")
+                if (itemId.isNotBlank()) {
+                    items.add(
+                        AddonItem(
+                            id = itemId,
+                            groupId = groupId,
+                            name = itemObj.optString("name"),
+                            price = itemObj.optDouble("price", 0.0),
+                            sortOrder = itemObj.optInt("sort_order", 0)
+                        )
+                    )
+                }
+            }
+        } catch (_: Exception) {
+        }
+        // Mesma ordem da web (fetchProductAddons): sort_order, desempate por nome.
+        items.sortWith(compareBy({ it.sortOrder }, { it.name }))
+        return PizzaAddonGroup(
+            id = groupId,
+            name = groupObj.optString("name"),
+            minSelect = groupObj.optInt("min_select", 0),
+            maxSelect = groupObj.optInt("max_select", 99).takeIf { it > 0 } ?: 99,
+            priceReplacesBase = groupObj.optBoolean("price_replaces_base", false),
+            items = items,
+            sortOrder = groupObj.optInt("sort_order", 0)
+        )
+    }
+
+    /**
+     * Mescla os grupos diretos e vinculados do montador (função pura, p/
+     * teste). Direto ganha no conflito de id; o resultado sai ordenado por
+     * sort_order (estável — empates mantêm direto antes de vinculado).
+     */
+    fun mergeFlavorAddonGroups(
+        direct: List<PizzaAddonGroup>,
+        linked: List<PizzaAddonGroup>
+    ): List<PizzaAddonGroup> {
+        val seen = mutableSetOf<String>()
+        val merged = mutableListOf<PizzaAddonGroup>()
+        for (group in direct + linked) {
+            if (seen.add(group.id)) merged.add(group)
+        }
+        return merged.sortedBy { it.sortOrder }
     }
 
     // ------------------------------------------------------------------
