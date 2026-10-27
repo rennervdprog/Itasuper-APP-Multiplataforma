@@ -943,8 +943,9 @@ private fun paymentDisplayName(method: String): String {
 }
 
 private fun Store.paymentMethods(): List<String> = buildList {
-    if (settings.acceptPixOnline) add("PIX online")
-    if (settings.acceptPixMachine) add("PIX na maquininha")
+    // Fase 2 — mesmos 3 métodos do checkout: "PIX Online" e "PIX na
+    // Maquininha" não são mais oferecidos no app (decisão do Renner).
+    if (pixDirectEnabled && pixDirectKeyConfigured) add("PIX Direto")
     if (settings.acceptCard) add("Cartão")
     if (settings.acceptCash) add("Dinheiro")
 }

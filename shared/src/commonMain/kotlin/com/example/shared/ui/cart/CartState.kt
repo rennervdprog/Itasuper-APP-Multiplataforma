@@ -6,17 +6,20 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.example.shared.model.CartItem
+import com.example.shared.model.checkoutRefusalReason
 import com.example.shared.model.Coupon
 import com.example.shared.model.DeliveryAddressInput
 import com.example.shared.model.DeliveryQuote
 import com.example.shared.model.DeliveryQuoteFailure
 import com.example.shared.model.DeliveryQuoteResult
+import com.example.shared.model.newIdempotencyKey
 import com.example.shared.model.Order
 import com.example.shared.model.PixDirectPaymentUiState
 import com.example.shared.model.PixPaymentUiState
 import com.example.shared.model.Product
 import com.example.shared.model.SelectedAddonItem
 import com.example.shared.model.SavedAddress
+import com.example.shared.model.Store
 import com.example.shared.model.toSnapshot
 import com.example.shared.network.SupabaseApi
 import com.example.shared.platform.SecureStorage
@@ -36,27 +39,17 @@ fun formatBRL(valor: Double): String = com.example.shared.util.formatBRL(valor)
 
 /**
  * Normaliza a forma de pagamento de exibição para o vocabulário do backend.
- * (Porte de OrdersViewModel.checkoutOrder do app original — o backend/PDV
- * consome "pix", "pix_machine", "pix_direto", "cartao", "dinheiro".)
+ * Fase 2 — "PIX Online" removido (decisão do Renner; o checkout web tem só
+ * `pix_direto`, `cartao` e `dinheiro`). O vocabulário `pix` do BOT guiado
+ * não é escopo e continua lá fora. Qualquer valor fora da whitelist da RPC
+ * é rejeitado pelo servidor — o app não inventa status inicial.
  */
 fun normalizePaymentMethod(display: String): String = when (display.trim().lowercase()) {
-    "pix", "pix online" -> "pix"
-    "pix na maquininha" -> "pix_machine"
     "pix direto" -> "pix_direto"
+    "pix na maquininha" -> "pix_machine"
     "cartão", "cartao", "cartão na entrega" -> "cartao"
     "dinheiro", "dinheiro na entrega" -> "dinheiro"
     else -> display.trim().lowercase()
-}
-
-/**
- * Status inicial do pedido conforme a forma de pagamento.
- * (Porte de OrdersViewModel.checkoutOrder do app original — o status
- * "recebido" não existe na máquina de estados do backend.)
- */
-fun initialOrderStatus(normalizedPaymentMethod: String): String = when (normalizedPaymentMethod) {
-    "pix" -> "aguardando_pagamento"
-    "pix_direto" -> "aguardando_comprovante"
-    else -> "pendente"
 }
 
 enum class DeliveryType { DELIVERY, PICKUP }
@@ -330,7 +323,7 @@ class CartHolder {
 
     /** Endereços salvos REAIS do cliente (o checkout preenche via API). */
     var savedAddresses by mutableStateOf<List<SavedAddress>>(emptyList())
-    var paymentMethod by mutableStateOf("PIX Online")
+    var paymentMethod by mutableStateOf("PIX Direto")
     var needsChange by mutableStateOf(false)
     var changeForAmount by mutableStateOf("")
     var scheduleNow by mutableStateOf(true)
@@ -342,6 +335,23 @@ class CartHolder {
         private set
     var orderError by mutableStateOf<String?>(null)
         private set
+
+    /**
+     * Fase 2 — chave de idempotência do checkout atual. Gerada 1x na
+     * primeira tentativa e reutilizada no retry (a RPC devolve o pedido já
+     * criado, sem duplicar). Qualquer mudança no carrinho invalida a chave.
+     */
+    var orderIdempotencyKey by mutableStateOf<String?>(null)
+        private set
+
+    /** Devolve a chave atual do checkout, gerando uma nova se não houver. */
+    fun ensureOrderIdempotencyKey(): String {
+        val existing = orderIdempotencyKey
+        if (!existing.isNullOrBlank()) return existing
+        val fresh = newIdempotencyKey()
+        orderIdempotencyKey = fresh
+        return fresh
+    }
 
     var pixPayment by mutableStateOf<PixPaymentUiState?>(null)
         private set
@@ -446,6 +456,7 @@ class CartHolder {
         } else {
             items + CartItem(product = product, quantity = quantity, notes = notes, selectedAddons = addons, priceMode = priceMode)
         }
+        orderIdempotencyKey = null
         return true
     }
 
@@ -455,6 +466,7 @@ class CartHolder {
         } else {
             items.map { if (it.product.id == productId) it.copy(quantity = newQuantity) else it }
         }
+        orderIdempotencyKey = null
     }
 
     fun clearCart() {
@@ -476,6 +488,7 @@ class CartHolder {
         deliveryQuoteRequestKey = null
         inFlightDeliveryQuoteKey = null
         selectedAddressId = null
+        orderIdempotencyKey = null
     }
 
     /** Troca entrega/retirada (porte do setDeliveryType do original). */
@@ -598,11 +611,23 @@ class CartHolder {
     }
 
     /**
-     * Envia o pedido real via Supabase — porte completo do checkoutOrder +
-     * OrderRepository.placeOrder do app original: validações (farmácia,
-     * sessão, troco, endereço, cotação), confirmação final da taxa fixa,
-     * snapshot da cotação no pedido e benefícios/cupom processados DEPOIS
-     * do insert (fidelidade → carteira → registro do cupom).
+     * Envia o pedido real via Supabase — porte do checkoutOrder do app
+     * original, migrado na Fase 2 para a RPC `create_order_with_items`:
+     * validações locais (farmácia, sessão, troco, endereço, cotação),
+     * confirmação final da taxa fixa e snapshot da cotação.
+     *
+     * Diferenças vs. o INSERT direto antigo:
+     * - A RPC cria pedido + itens + descontos numa transação só — cupom,
+     *   fidelidade e carteira NÃO são mais debitados depois do pedido
+     *   (debitar 2x era o risco da migração).
+     * - O status vem do servidor (`pix_direto` -> `aguardando_comprovante`,
+     *   pré-pedido -> `scheduled`, senão `pendente`) — o app não escolhe
+     *   mais status inicial.
+     * - Loja fechada / abaixo do mínimo são recusados ANTES do submit
+     *   (`checkoutRefusalReason`, mesmas mensagens do checkout logado da
+     *   web); a RPC continua sendo o backstop.
+     * - A chave de idempotência é gerada 1x por checkout e reutilizada no
+     *   retry — repetir a mesma chave devolve o pedido já criado.
      */
     fun placeOrder(
         walletDiscount: Double = 0.0,
@@ -610,8 +635,8 @@ class CartHolder {
         loyaltyDiscount: Double = 0.0,
         addressInput: DeliveryAddressInput? = null,
         scheduledForIso: String = "",
-        releaseAtIso: String = "",
-        isPreorder: Boolean = false
+        isPreorder: Boolean = false,
+        store: Store? = null
     ) {
         if (items.isEmpty() || isPlacingOrder) return
         orderError = null
@@ -631,6 +656,15 @@ class CartHolder {
             return
         }
         val normalizedPayment = normalizePaymentMethod(paymentMethod)
+        // Fase 2 (2C): loja fechada / abaixo do mínimo — recusar antes do
+        // submit, com a mensagem do servidor (igual ao checkout logado).
+        if (store != null) {
+            val refusal = checkoutRefusalReason(store, subtotal)
+            if (refusal != null) {
+                orderError = refusal
+                return
+            }
+        }
         val checkoutTotal = (total - loyaltyDiscount - walletDiscount).coerceAtLeast(0.0)
         val changeRaw = changeForAmount.replace(",", ".").trim()
         val changeDouble = changeRaw.toDoubleOrNull()
@@ -689,6 +723,7 @@ class CartHolder {
         val quotedSubtotal = subtotal
         val quotedCouponDiscount = effectiveCouponDiscount
         val quotedCouponId = appliedCoupon?.id?.takeIf { it.isNotBlank() }
+        val idempotencyKey = ensureOrderIdempotencyKey()
         scope.launch {
             try {
                 // Cotação efetiva: retirada = pickup; taxa fixa = confirmação
@@ -721,15 +756,10 @@ class CartHolder {
                 val destination = effectiveQuote.destination
                 val isPickupOrder = deliveryType == DeliveryType.PICKUP
                 val finalDeliveryFee = if (isPickupOrder) 0.0 else effectiveQuote.pricing.deliveryFee
-                // A carteira é debitada depois do insert; o total inicial não a antecipa.
+                // A carteira entra no total só depois que a RPC confirma o
+                // desconto — o total inicial não a antecipa.
                 val totalBeforeWallet = (quotedSubtotal + finalDeliveryFee - quotedCouponDiscount - loyaltyDiscount)
                     .coerceAtLeast(0.0)
-                val initialStatus = when {
-                    normalizedPayment == "pix" -> "aguardando_pagamento"
-                    normalizedPayment == "pix_direto" -> "aguardando_comprovante"
-                    isPreorder -> "scheduled"
-                    else -> "pendente"
-                }
                 val draft = Order(
                     id = "",
                     storeId = quotedStoreId,
@@ -753,8 +783,8 @@ class CartHolder {
                     deliveryFeeAbsorbedByStore = if (isPickupOrder) 0.0 else effectiveQuote.pricing.platformFeeStoreAbsorbed,
                     deliveryQuoteSnapshot = if (isPickupOrder) null else effectiveQuote.toSnapshot(),
                     scheduledFor = scheduledForIso,
-                    releaseAt = releaseAtIso,
-                    status = initialStatus,
+                    releaseAt = "",
+                    status = "pendente",
                     createdAt = ""
                 )
                 val result = SupabaseApi.submitOrder(
@@ -762,31 +792,27 @@ class CartHolder {
                     clientId = userId,
                     accessToken = accessToken,
                     needsChange = normalizedPayment == "dinheiro" && needsChange,
-                    changeFor = if (normalizedPayment == "dinheiro" && needsChange) changeDouble else null
+                    changeFor = if (normalizedPayment == "dinheiro" && needsChange) changeDouble else null,
+                    idempotencyKey = idempotencyKey,
+                    couponId = quotedCouponId,
+                    walletDiscount = walletDiscount,
+                    isPickup = isPickupOrder,
+                    isPreorder = isPreorder
                 )
                 if (!result.isSuccess || result.orderId.isNullOrBlank()) {
                     orderError = result.errorMessage ?: "Não foi possível enviar o pedido. Tente novamente."
                     isPlacingOrder = false
                     return@launch
                 }
-                val newOrderId = result.orderId
-                // Benefícios e cupom são processados após o pedido (igual ao original).
-                if (loyaltyPointsUsed > 0 && loyaltyDiscount > 0) {
-                    SupabaseApi.redeemLoyaltyPoints(newOrderId, quotedStoreId, loyaltyPointsUsed, accessToken)
-                }
-                var confirmedWalletDiscount = 0.0
-                if (walletDiscount > 0) {
-                    val applied = SupabaseApi.applyWalletDiscount(newOrderId, userId, walletDiscount, accessToken)
-                    if (applied.isSuccess) confirmedWalletDiscount = walletDiscount
-                }
-                if (quotedCouponId != null) {
-                    SupabaseApi.registerCouponUse(quotedCouponId, userId, newOrderId, accessToken)
-                }
+                // Totais e status são os do servidor — a RPC já consumiu o
+                // cupom, resgatou a fidelidade e debitou a carteira dentro
+                // da transação (nada a processar depois do pedido).
                 placedOrder = draft.copy(
-                    id = newOrderId,
-                    createdAt = result.createdAt ?: "",
-                    walletDiscount = confirmedWalletDiscount,
-                    total = (totalBeforeWallet - confirmedWalletDiscount).coerceAtLeast(0.0)
+                    id = result.orderId,
+                    status = result.status ?: "pendente",
+                    walletDiscount = result.walletDiscount ?: 0.0,
+                    total = result.totalPrice ?: totalBeforeWallet,
+                    createdAt = ""
                 )
             } catch (_: Throwable) {
                 orderError = "Não foi possível enviar o pedido. Verifique sua conexão e tente novamente."

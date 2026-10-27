@@ -1,6 +1,7 @@
 package com.example.shared.network
 
 import com.example.shared.model.Banner
+import com.example.shared.model.BuildCreateOrderInput
 import com.example.shared.model.CartItem
 import com.example.shared.model.DeliveryQuoteSnapshot
 import com.example.shared.model.DiscoverProduct
@@ -20,7 +21,9 @@ import com.example.shared.model.MenuSection
 import com.example.shared.model.ProductAddonsPayload
 import com.example.shared.model.SavedAddress
 import com.example.shared.model.StoreDeliveryAvailability
+import com.example.shared.model.buildCreateOrderPayload
 import com.example.shared.model.normalizeBrazilianUf
+import com.example.shared.model.parseCreateOrderResult
 import com.example.shared.model.Coupon
 import com.example.shared.model.ClientNotification
 import com.example.shared.model.DeliveryAddressInput
@@ -111,10 +114,18 @@ data class SupabaseAuthResponse(
     val errorMessage: String? = null
 )
 
+/** Resposta da criação de pedido — campos devolvidos pela RPC `create_order_with_items`. */
 data class OrderSubmissionResponse(
     val isSuccess: Boolean,
     val orderId: String? = null,
-    val createdAt: String? = null,
+    val orderNumber: Int? = null,
+    val status: String? = null,
+    val subtotal: Double? = null,
+    val deliveryFee: Double? = null,
+    val totalPrice: Double? = null,
+    val walletDiscount: Double? = null,
+    val deliveryPin: String? = null,
+    val isNew: Boolean = true,
     val errorMessage: String? = null
 )
 
@@ -1279,176 +1290,98 @@ object SupabaseApi {
     // (d) CRIAÇÃO DE PEDIDO — porte de SupabaseClient.submitOrder
     // ------------------------------------------------------------------
 
+    /**
+     * Fase 2 (2A) — criação de pedido pela RPC `create_order_with_items`.
+     *
+     * O INSERT direto em `orders`/`order_items` morreu aqui: ele desviava de
+     * todas as travas do servidor (mínimo, loja fechada, preço do catálogo,
+     * cupom, fidelidade, carteira) e validava o item montado DEPOIS do
+     * INSERT (pedido órfão possível). A RPC cria pedido + itens + descontos
+     * numa transação só e rejeita o que não passa — o cliente só monta o
+     * payload e lê o resultado.
+     *
+     * - `idempotencyKey`: uma chave por checkout (gerada 1x e reutilizada no
+     *   retry). Repetir a mesma chave devolve o pedido já criado, sem
+     *   duplicar (`isNew=false`).
+     * - `paymentMethod` só aceita a whitelist da RPC
+     *   (`pix_direto`/`pix_machine`/`cartao`/`dinheiro`). "PIX Online"
+     *   não existe mais — qualquer `'pix'` é rejeitado pelo servidor.
+     * - `scheduledFor` (ISO) é o horário do pré-pedido; a RPC calcula o
+     *   `release_at` — o app não envia mais.
+     */
     suspend fun submitOrder(
         order: Order,
         clientId: String,
         accessToken: String,
         needsChange: Boolean,
-        changeFor: Double?
+        changeFor: Double?,
+        idempotencyKey: String,
+        couponId: String?,
+        walletDiscount: Double,
+        isPickup: Boolean,
+        isPreorder: Boolean
     ): OrderSubmissionResponse {
         return try {
             val bearer = if (accessToken.isNotBlank()) accessToken else SUPABASE_ANON_KEY
-            val orderJson = buildJsonObject {
-                putStr("client_id", clientId)
-                putStr("store_id", order.storeId)
-                putNum("subtotal", order.subtotal)
-                putNum("delivery_fee", order.deliveryFee)
-                putNum("wallet_discount", order.walletDiscount)
-                putNum("loyalty_points_used", order.loyaltyPointsUsed)
-                putNum("loyalty_discount", order.loyaltyDiscount)
-                putNum("total_price", order.total)
-                putStr("payment_method", order.paymentMethod)
-                putStr("neighborhood", order.neighborhood)
-                putStr("address_details", order.deliveryAddress)
-                putBlankAsNull("delivery_cep", order.deliveryCep)
-                putBlankAsNull("delivery_city", order.deliveryCity)
-                putBlankAsNull("delivery_state", order.deliveryState)
-                putNum("client_lat", order.clientLatitude)
-                putNum("client_lng", order.clientLongitude)
-                putNum("delivery_fee_absorbed_by_store", order.deliveryFeeAbsorbedByStore)
-                order.deliveryQuoteSnapshot?.let { snapshot ->
-                    put("metadata", buildJsonObject {
-                        put("delivery_quote", buildJsonObject {
-                            putNum("policy_version", snapshot.policyVersion)
-                            putNum("distance_km", snapshot.distanceKm)
-                            putStr("distance_source", snapshot.distanceSource)
-                            putNum("max_delivery_km", snapshot.maxDeliveryKm)
-                            putStr("destination_precision", snapshot.destinationPrecision)
-                            putNum("store_delivery_base", snapshot.storeDeliveryBase)
-                            putNum("platform_fee_customer", snapshot.platformFeeCustomer)
-                            putNum("platform_fee_store_absorbed", snapshot.platformFeeStoreAbsorbed)
-                            putNum("delivery_fee", snapshot.deliveryFee)
-                            putNum("vip_override_applied", snapshot.vipOverrideApplied)
-                            putStr("split_mode", snapshot.splitMode)
-                            putStr("plan_type", snapshot.planType)
-                            putBool("free_delivery_applied", snapshot.freeDeliveryApplied)
-                        })
-                    })
-                }
-                putBool("needs_change", needsChange)
-                putNum("change_for", changeFor)
-                putBlankAsNull("scheduled_for", order.scheduledFor)
-                putBlankAsNull("release_at", order.releaseAt)
-                putStr("status", order.status)
-            }.toString()
-
-            val (orderOk, orderText) = restPostRaw(
-                "$SUPABASE_URL/rest/v1/orders", orderJson, bearer, prefer = "return=representation"
+            val payload = buildCreateOrderPayload(
+                BuildCreateOrderInput(
+                    clientId = clientId,
+                    storeId = order.storeId,
+                    idempotencyKey = idempotencyKey,
+                    items = order.items,
+                    deliveryFee = order.deliveryFee,
+                    deliveryFeeAbsorbed = order.deliveryFeeAbsorbedByStore,
+                    paymentMethod = order.paymentMethod,
+                    neighborhood = order.neighborhood.ifBlank { null },
+                    addressDetails = order.deliveryAddress.ifBlank { null },
+                    deliveryCep = order.deliveryCep.ifBlank { null },
+                    deliveryCity = order.deliveryCity.ifBlank { null },
+                    deliveryState = order.deliveryState.ifBlank { null },
+                    clientLat = order.clientLatitude,
+                    clientLng = order.clientLongitude,
+                    needsChange = needsChange,
+                    changeFor = changeFor,
+                    isPickup = isPickup,
+                    isPreorder = isPreorder,
+                    scheduledFor = order.scheduledFor.ifBlank { null },
+                    couponId = couponId,
+                    couponDiscount = order.couponDiscount,
+                    loyaltyPoints = order.loyaltyPointsUsed,
+                    loyaltyDiscount = order.loyaltyDiscount,
+                    walletDiscount = walletDiscount,
+                    deliveryQuote = order.deliveryQuoteSnapshot
+                )
+            ) ?: return OrderSubmissionResponse(
+                isSuccess = false,
+                errorMessage = "Não foi possível identificar o produto personalizado. Tente novamente."
             )
-            if (!orderOk || orderText.isBlank()) {
+            val (ok, text) = restPostRaw(
+                "$SUPABASE_URL/rest/v1/rpc/create_order_with_items",
+                payload.toString(),
+                bearer
+            )
+            if (!ok) {
                 return OrderSubmissionResponse(
                     isSuccess = false,
-                    errorMessage = parseErrorMessage(orderText, "Não foi possível criar o pedido.")
+                    errorMessage = parseErrorMessage(text, "Não foi possível criar o pedido.")
                 )
             }
-            val createdOrder = runCatching {
-                parseArray(orderText).firstOrNull()?.jsonObject
-            }.getOrNull()
+            val result = parseCreateOrderResult(text)
                 ?: return OrderSubmissionResponse(
-                    false,
-                    errorMessage = "O servidor não devolveu o identificador do pedido."
-                )
-            val orderId = createdOrder.optString("id")
-            if (orderId.isBlank()) {
-                return OrderSubmissionResponse(
-                    false,
-                    errorMessage = "O servidor não devolveu o identificador do pedido."
-                )
-            }
-
-            // Produto customizado do montador (pizza/pastel meio a meio): o ID
-            // sintético não é UUID — sem sabor identificado, o pedido não pode
-            // ser gravado (igual ao app original).
-            for (cartItem in order.items) {
-                if (cartItem.product.id.startsWith("custom_") &&
-                    cartItem.product.customFlavorIds.firstOrNull().isNullOrBlank()
-                ) {
-                    return OrderSubmissionResponse(
-                        false,
-                        errorMessage = "Não foi possível identificar o produto personalizado. Tente novamente."
-                    )
-                }
-            }
-
-            val itemsJson = buildJsonArray {
-                order.items.forEach { cartItem ->
-                    val addonsJson = buildJsonArray {
-                        cartItem.selectedAddons.forEach { addon ->
-                            add(
-                                buildJsonObject {
-                                    putStr("id", addon.itemId)
-                                    putStr("name", addon.itemName)
-                                    putNum("price", addon.itemPrice)
-                                    putStr("group_id", addon.groupId)
-                                    putStr("groupName", addon.groupName)
-                                    putBool("priceReplacesBase", addon.priceReplacesBase)
-                                }
-                            )
-                        }
-                    }
-                    add(
-                        buildJsonObject {
-                            putStr("order_id", orderId)
-                            // Item montado: product_id (FK) é o 1º sabor; os
-                            // detalhes da montagem vão no metadata (igual ao
-                            // app original, pro KDS/painel exibirem certo).
-                            putStr(
-                                "product_id",
-                                if (cartItem.product.id.startsWith("custom_")) {
-                                    cartItem.product.customFlavorIds.firstOrNull().orEmpty()
-                                } else {
-                                    cartItem.product.id
-                                }
-                            )
-                            putNum("quantity", cartItem.quantity)
-                            putNum("unit_price", cartItem.unitPrice)
-                            // O app Android grava a representação JSON dos adicionais
-                            // como string neste campo JSONB.
-                            if (addonsJson.isNotEmpty()) putStr("addons", addonsJson.toString())
-                            else put("addons", JsonNull)
-                            putStr("observations", cartItem.notes.ifBlank { null })
-                            if (cartItem.product.id.startsWith("custom_")) {
-                                put(
-                                    "metadata",
-                                    buildJsonObject {
-                                        putBool("custom_builder", true)
-                                        putStr(
-                                            "builder_type",
-                                            if (cartItem.product.id.startsWith("custom_pizza")) "pizza" else "pastel"
-                                        )
-                                        putStr("custom_name", cartItem.product.name)
-                                        putStr("custom_description", cartItem.product.description)
-                                        put(
-                                            "flavor_ids",
-                                            buildJsonArray {
-                                                cartItem.product.customFlavorIds.forEach { add(JsonPrimitive(it)) }
-                                            }
-                                        )
-                                    }
-                                )
-                            }
-                        }
-                    )
-                }
-            }.toString()
-
-            val (itemsOk, itemsText) = restPostRaw(
-                "$SUPABASE_URL/rest/v1/order_items", itemsJson, bearer, prefer = "return=minimal"
-            )
-            if (!itemsOk) {
-                return OrderSubmissionResponse(
                     isSuccess = false,
-                    errorMessage = parseErrorMessage(
-                        itemsText,
-                        "O pedido foi criado, mas não foi possível registrar os itens."
-                    )
+                    errorMessage = "O servidor não devolveu o identificador do pedido."
                 )
-            }
-
             OrderSubmissionResponse(
                 isSuccess = true,
-                orderId = orderId,
-                createdAt = createdOrder.optString("created_at").ifBlank { null }
+                orderId = result.orderId,
+                orderNumber = result.orderNumber,
+                status = result.status,
+                subtotal = result.subtotal,
+                deliveryFee = result.deliveryFee,
+                totalPrice = result.totalPrice,
+                walletDiscount = result.walletDiscount,
+                deliveryPin = result.deliveryPin,
+                isNew = result.isNew
             )
         } catch (_: Exception) {
             OrderSubmissionResponse(

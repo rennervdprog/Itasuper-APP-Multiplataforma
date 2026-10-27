@@ -1072,10 +1072,11 @@ fun CheckoutScreen(
 
                         Spacer(modifier = Modifier.height(10.dp))
 
+                        // Fase 2 — mesmos 3 métodos do checkout web: PIX Direto,
+                        // Cartão e Dinheiro. "PIX Online" removido (decisão do
+                        // Renner); "PIX na Maquininha" só existe no guest da web.
                         val paymentOptions = buildList {
                             val settings = store?.settings
-                            if (settings?.acceptPixOnline == true) add("PIX Online")
-                            if (settings?.acceptPixMachine == true) add("PIX na Maquininha")
                             val s = store
                             if (s?.pixDirectEnabled == true && s.pixDirectKeyConfigured) add("PIX Direto")
                             if (settings?.acceptCard == true) add("Cartão")
@@ -1525,21 +1526,14 @@ fun CheckoutScreen(
                         } else {
                             ""
                         }
-                        val releaseIso = if (isPreorderOrder && normalizePaymentMethod(cart.paymentMethod) != "pix") {
-                            store?.preorderReleaseAtMillis()?.let {
-                                Instant.fromEpochMilliseconds(it).toString()
-                            } ?: ""
-                        } else {
-                            ""
-                        }
                         cart.placeOrder(
                             walletDiscount = walletDiscount,
                             loyaltyPointsUsed = loyaltyPointsEffective,
                             loyaltyDiscount = loyaltyDiscount,
                             addressInput = currentAddressInput(),
                             scheduledForIso = scheduledIso,
-                            releaseAtIso = releaseIso,
-                            isPreorder = isPreorderOrder
+                            isPreorder = isPreorderOrder,
+                            store = store
                         )
                     },
                     enabled = !cart.isPlacingOrder && deliveryQuoteReady,
@@ -1593,9 +1587,7 @@ private fun PaymentSelectionCard(
         else -> Icons.Filled.AttachMoney
     }
     val description = when {
-        method.equals("PIX Online", ignoreCase = true) -> "Pagamento confirmado no aplicativo"
         method.equals("PIX Direto", ignoreCase = true) -> "Envie o comprovante depois do pedido"
-        method.equals("PIX na Maquininha", ignoreCase = true) -> "Pague na entrega"
         method.equals("Cartão", ignoreCase = true) -> "Pague na entrega"
         else -> "Informe o valor para troco"
     }
