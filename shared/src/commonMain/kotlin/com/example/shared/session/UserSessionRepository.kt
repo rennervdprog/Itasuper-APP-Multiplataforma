@@ -179,8 +179,16 @@ object UserSessionRepository {
         persist(created)
     }
 
-    /** Logout: limpa memória e disco. */
+    /** Logout: revoga a sessão no servidor (melhor esforço) e limpa memória e disco. */
     fun logout() {
+        // S5 (segurança): sem este chamado, o refresh token seguia válido
+        // no servidor depois do logout — só o aparelho era limpo.
+        val token = _session.value.accessToken
+        if (token.isNotBlank()) {
+            scope.launch {
+                runCatching { SupabaseApi.logoutFromServer(token) }
+            }
+        }
         _session.value = UserSession(isSessionRestored = true)
         try {
             allKeys.forEach { storage.remove(it) }
