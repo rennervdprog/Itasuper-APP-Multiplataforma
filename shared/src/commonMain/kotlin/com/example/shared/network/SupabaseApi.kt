@@ -2337,6 +2337,27 @@ object SupabaseApi {
         else SupabaseAuthResponse(false, errorMessage = parsed.errorMessage ?: "Sua sessão expirou. Entre novamente.")
     }
 
+    /**
+     * Revoga a sessão no servidor (item S5 da varredura de segurança):
+     * POST /auth/v1/logout com o access token do usuário. Melhor esforço —
+     * qualquer falha (sem rede, sessão já morta) é ignorada, porque o
+     * logout local acontece de qualquer jeito. Não usa os helpers REST
+     * de propósito: eles renovariam a sessão num 401 antes de revogar.
+     */
+    suspend fun logoutFromServer(accessToken: String) {
+        if (accessToken.isBlank()) return
+        try {
+            client.post("$SUPABASE_URL/auth/v1/logout") {
+                header("apikey", SUPABASE_ANON_KEY)
+                header("Authorization", "Bearer $accessToken")
+                contentType(ContentType.Application.Json)
+                setBody("{}")
+            }
+        } catch (_: Exception) {
+            // Falha de rede não impede o logout local.
+        }
+    }
+
     /** Envia o e-mail de redefinição de senha (mesmo link do web). */
     suspend fun requestPasswordRecovery(email: String): SupabaseOperationResult {
         val body = buildJsonObject {
