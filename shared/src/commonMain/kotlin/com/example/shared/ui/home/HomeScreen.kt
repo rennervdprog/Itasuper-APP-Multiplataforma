@@ -399,9 +399,6 @@ fun HomeScreen(
     // no KMP o sheet é aberto pelo menu Perfil).
     var showSupportSheet by remember { mutableStateOf(false) }
 
-    // Banner promocional dispensável (padrão iFood): visível enquanto há cupons e não foi fechado.
-    var promoBannerDismissed by remember { mutableStateOf(false) }
-
     // Sessão real do cliente (UserSessionRepository) — mesma fonte do original.
     val session by UserSessionRepository.session.collectAsState()
     var addressDraft by remember(session.userId) {
@@ -575,7 +572,8 @@ fun HomeScreen(
     }
 
     // Preço acessível: produtos reais de lojas abertas da região, do menor
-    // preço pra cima (sem lojas abertas = seção some, igual ao original).
+    // preço pra cima, SÓ COMIDA (ajuste 2026-11-02: sem o filtro, a vitrine
+    // era só bebida — o item mais barato de qualquer loja é bebida).
     var affordableProducts by remember { mutableStateOf<List<DiscoverProduct>>(emptyList()) }
     val regionalOpenKey = regionalStores.filter { it.isOpen }.joinToString(",") { it.id }
     LaunchedEffect(regionalOpenKey) {
@@ -584,7 +582,31 @@ fun HomeScreen(
             emptyList()
         } else {
             try {
-                SupabaseApi.fetchDiscoverProducts(openStores, limit = 8, orderByPrice = true)
+                SupabaseApi.fetchDiscoverProducts(
+                    openStores, limit = 8, orderByPrice = true, excludeBeverageSections = true
+                )
+            } catch (_: Throwable) {
+                emptyList()
+            }
+        }
+    }
+
+    // Destaque da faixa de horário em PRATOS (ajuste 2026-11-02): a seção
+    // promete "pratos prontos" e mostrava LOJAS. Passa a mostrar produtos
+    // reais das lojas do destaque — com foto, sem bebidas, best-sellers
+    // primeiro. Sem produto com foto, a seção some (não volta a ser loja).
+    var spotlightProducts by remember { mutableStateOf<List<DiscoverProduct>>(emptyList()) }
+    val spotlightKey = spotlightStores.joinToString(",") { it.id }
+    LaunchedEffect(spotlightKey) {
+        spotlightProducts = if (spotlightStores.isEmpty()) {
+            emptyList()
+        } else {
+            try {
+                SupabaseApi.fetchDiscoverProducts(
+                    spotlightStores, limit = 24, orderByPrice = false, excludeBeverageSections = true
+                ).filter { it.imageUrl.isNotBlank() && !it.imageUrl.equals("null", ignoreCase = true) }
+                    .sortedByDescending { it.isBestseller }
+                    .take(8)
             } catch (_: Throwable) {
                 emptyList()
             }
@@ -642,12 +664,6 @@ fun HomeScreen(
             onAddressClick = { showAddressChoiceDialog = true }
         )
 
-        // Banner promocional dispensável (só aparece quando há cupons).
-        if (storesWithCoupons.isNotEmpty() && !promoBannerDismissed) {
-            Spacer(modifier = Modifier.height(8.dp))
-            HomePromoBanner(onDismiss = { promoBannerDismissed = true })
-        }
-
         HomeSearchSection(
             activeCity = activeCity,
             onClick = onSearchClick
@@ -663,12 +679,12 @@ fun HomeScreen(
 
         // Destaque da faixa de horário. Só aparece quando há loja aberta
         // suficiente na faixa; a lista regional completa continua abaixo.
-        if (spotlightStores.isNotEmpty()) {
+        if (spotlightProducts.isNotEmpty()) {
             Spacer(modifier = Modifier.height(20.dp))
             HomeDaypartSection(
                 daypart = daypart,
-                stores = spotlightStores,
-                onStoreClick = onStoreClick,
+                products = spotlightProducts,
+                onProductClick = onProductClick,
                 onViewAll = onSearchClick
             )
         }
@@ -1012,54 +1028,6 @@ private fun HomeHeaderSection(
         }
     }
 }
-
-/** Banner promocional dispensável abaixo do header (padrão iFood, cores ItaSuper). */
-@Composable
-private fun HomePromoBanner(
-    onDismiss: () -> Unit,
-    onClick: () -> Unit = {}
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFFFFF1E3))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = Icons.Filled.LocalOffer,
-            contentDescription = null,
-            tint = ItaSuperPrimary,
-            modifier = Modifier.size(28.dp)
-        )
-        Spacer(modifier = Modifier.width(12.dp))
-        Text(
-            text = "Você tem cupons disponíveis!",
-            style = MaterialTheme.typography.bodyMedium.copy(
-                fontFamily = ManropeFontFamily(),
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp,
-                color = ItaSuperTextPrimary
-            ),
-            modifier = Modifier.weight(1f)
-        )
-        IconButton(
-            onClick = onDismiss,
-            modifier = Modifier.size(28.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Close,
-                contentDescription = "Fechar",
-                tint = ItaSuperTextSecondary,
-                modifier = Modifier.size(16.dp)
-            )
-        }
-    }
-}
-
 
 @Composable
 private fun HomeTopActionButton(
@@ -2429,8 +2397,7 @@ private fun HomeStoresWithCouponsSection(
                         "${com.example.shared.util.formatBRL(item.discountValue)} OFF em ${item.storeName}"
                     },
                     captionSubtitle = "Use o cupom ${item.couponCode}",
-                    emoji = "🎟",
-                    gradientColors = listOf(ItaSuperPrimary, Color(0xFFFFB37A)),
+                    codePill = item.couponCode,
                     onClick = { onStoreClick(item.storeId, item.couponCode) }
                 )
             }
@@ -2439,8 +2406,9 @@ private fun HomeStoresWithCouponsSection(
 }
 
 /**
- * Banner promocional estilo iFood: gradiente, badge, valor em destaque,
- * elemento visual e título + subtítulo abaixo.
+ * Banner promocional: fundo sólido na cor da marca (ajuste 2026-11-02 — saiu
+ * o gradiente e o emoji de ingresso, que fugia da identidade), badge, valor
+ * em destaque, código do cupom em pílula branca e título + subtítulo abaixo.
  */
 @Composable
 private fun PromoBannerCard(
@@ -2449,8 +2417,7 @@ private fun PromoBannerCard(
     subtitle: String,
     captionTitle: String,
     captionSubtitle: String,
-    emoji: String,
-    gradientColors: List<Color>,
+    codePill: String,
     onClick: () -> Unit
 ) {
     Column(modifier = Modifier.width(280.dp).clickable { onClick() }) {
@@ -2459,12 +2426,12 @@ private fun PromoBannerCard(
                 .fillMaxWidth()
                 .height(140.dp)
                 .clip(RoundedCornerShape(16.dp))
-                .background(Brush.linearGradient(colors = gradientColors))
+                .background(ItaSuperPrimary)
         ) {
             Column(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
-                    .padding(start = 20.dp, end = 100.dp)
+                    .padding(start = 20.dp, end = 132.dp)
             ) {
                 Box(
                     modifier = Modifier
@@ -2498,11 +2465,31 @@ private fun PromoBannerCard(
                     color = Color.White
                 )
             }
-            Text(
-                text = emoji,
-                fontSize = 72.sp,
-                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp)
-            )
+            Column(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 16.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "USE O CUPOM",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 9.sp,
+                    letterSpacing = 0.8.sp,
+                    color = ItaSuperTextSecondary
+                )
+                Text(
+                    text = codePill,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 16.sp,
+                    color = ItaSuperPrimary
+                )
+            }
         }
         Column(modifier = Modifier.padding(start = 4.dp, top = 8.dp)) {
             Text(
@@ -2604,8 +2591,8 @@ private fun CouponTicketCard(
 @Composable
 private fun HomeDaypartSection(
     daypart: HomeDaypart,
-    stores: List<Store>,
-    onStoreClick: (String) -> Unit,
+    products: List<DiscoverProduct>,
+    onProductClick: (DiscoverProduct) -> Unit,
     onViewAll: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -2673,31 +2660,45 @@ private fun HomeDaypartSection(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            itemsIndexed(stores, key = { _, store -> "daypart_${store.id}" }) { _, store ->
+            itemsIndexed(products.take(8), key = { _, product -> "daypart_product_${product.id}" }) { _, product ->
                 Card(
                     modifier = Modifier
                         .width(126.dp)
-                        .clickable { onStoreClick(store.id) }
-                        .testTag("daypart_store_${store.id}"),
+                        .clickable { onProductClick(product) }
+                        .testTag("daypart_product_${product.id}"),
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White),
                     border = BorderStroke(1.dp, Color(0xFFE8E8E8)),
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(10.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        StoreLogoThumbnail(
-                            store = store,
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Box(
                             modifier = Modifier
-                                .size(40.dp)
-                                .border(1.dp, Color(0xFFE8E8E8), CircleShape),
-                            circular = true
-                        )
+                                .fillMaxWidth()
+                                .height(76.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(Color(0xFFF7F7F7)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (product.imageUrl.isNotBlank() && !product.imageUrl.equals("null", ignoreCase = true)) {
+                                AsyncImage(
+                                    model = product.imageUrl,
+                                    contentDescription = product.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Icon(
+                                    painter = painterResource(Res.drawable.ic_ita_bag),
+                                    contentDescription = null,
+                                    tint = Color(0xFF8A8A8A),
+                                    modifier = Modifier.size(25.dp)
+                                )
+                            }
+                        }
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = store.name,
+                            text = product.name,
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 fontFamily = ManropeFontFamily(),
                                 fontWeight = FontWeight.SemiBold,
@@ -2705,23 +2706,31 @@ private fun HomeDaypartSection(
                                 lineHeight = 14.sp,
                                 color = Color(0xFF242424)
                             ),
-                            textAlign = TextAlign.Center,
                             maxLines = 2,
                             minLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
                         Spacer(modifier = Modifier.height(3.dp))
                         Text(
-                            text = daypartStoreDetail(store),
+                            text = product.storeName,
                             style = MaterialTheme.typography.bodySmall.copy(
                                 fontFamily = ManropeFontFamily(),
                                 fontWeight = FontWeight.Medium,
                                 fontSize = 10.sp,
                                 color = Color(0xFF737373)
                             ),
-                            textAlign = TextAlign.Center,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = formatPriceBR(product.price),
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontFamily = ManropeFontFamily(),
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 13.sp,
+                                color = ItaSuperPrimary
+                            )
                         )
                     }
                 }
@@ -2730,17 +2739,6 @@ private fun HomeDaypartSection(
     }
 }
 
-/**
- * Mesma leitura do card da lista: tempo quando existe, senão distância.
- * O card do destaque é estreito e não comporta a linha completa.
- */
-private fun daypartStoreDetail(store: Store): String {
-    val deliveryTime = store.deliveryTime.takeUnless { it.isBlank() || it.equals("null", true) }
-    if (deliveryTime != null) return deliveryTime
-    val distance = store.distanceKm?.takeIf { it.isFinite() && it >= 0.0 } ?: return "Aberta agora"
-    return if (distance < 1.0) "${(distance * 1000).toInt()} m"
-    else formatKmBR(distance)
-}
 
 @Composable
 private fun HomeAffordableProductsSection(
@@ -3422,7 +3420,6 @@ private fun StoreCardItem(
         }
     val deliveryDetails = listOfNotNull(deliveryTime, deliveryFee, distanceLabel).joinToString("  •  ")
     val openingMessage = nextStoreOpeningLabel(store)
-    val deliveryUnavailable = store.deliveryMode.equals("own", ignoreCase = true) && store.hasAvailableDriver == false
 
     Column(
         modifier = Modifier
@@ -3483,22 +3480,6 @@ private fun StoreCardItem(
                             fontSize = 13.sp,
                             color = if (store.isFreeDelivery) ItaSuperSuccess else Color(0xFF686868),
                             fontWeight = if (store.isFreeDelivery) FontWeight.SemiBold else FontWeight.Medium
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                if (deliveryUnavailable) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = store.deliveryAvailabilityMessage.ifBlank {
-                            "Entrega indisponível no momento"
-                        },
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontFamily = ManropeFontFamily(),
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 11.sp,
-                            color = Color(0xFFC13550)
                         ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
