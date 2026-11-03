@@ -3195,22 +3195,70 @@ object SupabaseApi {
      * select=*, nome/categoria da loja resolvidos pelo mapa de lojas, sem
      * fallback fictício — lista vazia quando não há produtos reais).
      */
+    /** Palavras que marcam uma seção do cardápio como seção de bebidas. */
+    private val BEVERAGE_SECTION_KEYWORDS = listOf(
+        "bebida", "refrigerante", "cerveja", "suco", "drink", "energetico"
+    )
+
+    /** Minúsculas sem acento, pra comparar nome de seção do cardápio. */
+    private fun foldAccentsLower(value: String): String {
+        val sb = StringBuilder()
+        for (ch in value.lowercase()) {
+            sb.append(
+                when (ch) {
+                    'á', 'à', 'â', 'ã', 'ä' -> 'a'
+                    'é', 'è', 'ê', 'ë' -> 'e'
+                    'í', 'ì', 'î', 'ï' -> 'i'
+                    'ó', 'ò', 'ô', 'õ', 'ö' -> 'o'
+                    'ú', 'ù', 'û', 'ü' -> 'u'
+                    'ç' -> 'c'
+                    'ñ' -> 'n'
+                    else -> ch
+                }
+            )
+        }
+        return sb.toString()
+    }
+
     suspend fun fetchDiscoverProducts(
         openStores: List<Store>,
         limit: Int = 8,
-        orderByPrice: Boolean = false
+        orderByPrice: Boolean = false,
+        excludeBeverageSections: Boolean = false
     ): List<DiscoverProduct> {
         if (openStores.isEmpty()) return emptyList()
         return try {
             val idFilter = openStores.joinToString(",") { it.id }
+            // Sem bebidas (ajuste 2026-11-02): as vitrines de comida da Home
+            // ("Preço acessível" e o destaque da faixa de horário) só mostravam
+            // bebida, porque bebida é o item mais barato de qualquer loja. A
+            // exclusão é pela SEÇÃO do cardápio (menu_sections) que a própria
+            // loja organizou — nada de chute por nome de produto.
+            var beverageSectionIds: Set<String> = emptySet()
+            if (excludeBeverageSections) {
+                val (secOk, secText) = restGetRaw(
+                    "$SUPABASE_URL/rest/v1/menu_sections?select=id,name&store_id=in.($idFilter)"
+                )
+                if (secOk && secText.isNotBlank()) {
+                    beverageSectionIds = parseArray(secText).mapNotNull { el ->
+                        val sec = el.jsonObject
+                        val secName = foldAccentsLower(sec.optString("name"))
+                        val secId = sec.optString("id")
+                        if (secId.isNotBlank() && BEVERAGE_SECTION_KEYWORDS.any { secName.contains(it) }) secId else null
+                    }.toSet()
+                }
+            }
+            // Filtrando, a busca traz folga e o corte final é depois do filtro.
+            val queryLimit = if (excludeBeverageSections) maxOf(limit * 4, 32) else limit
             val ordering = if (orderByPrice) "&price=gt.0&order=price.asc" else ""
             val (ok, text) = restGetRaw(
-                "$SUPABASE_URL/rest/v1/products?select=*&is_available=eq.true&store_id=in.($idFilter)$ordering&limit=$limit"
+                "$SUPABASE_URL/rest/v1/products?select=*&is_available=eq.true&store_id=in.($idFilter)$ordering&limit=$queryLimit"
             )
             if (!ok || text.isBlank()) return emptyList()
             val storeMap = openStores.associateBy { it.id }
             parseArray(text).mapNotNull { el ->
                 val item = el.jsonObject
+                if (item.optString("section_id") in beverageSectionIds) return@mapNotNull null
                 val id = item.optString("id")
                 val sId = item.optString("store_id")
                 val name = item.optString("name")
@@ -3222,9 +3270,10 @@ object SupabaseApi {
                     storeCategory = storeMap[sId]?.category ?: "",
                     name = name,
                     price = item.optDouble("price", 0.0),
-                    imageUrl = item.optString("image_url")
+                    imageUrl = item.optString("image_url"),
+                    isBestseller = item.optBoolean("is_bestseller", false)
                 )
-            }
+            }.take(limit)
         } catch (_: Exception) {
             emptyList()
         }

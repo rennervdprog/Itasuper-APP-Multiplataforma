@@ -7,7 +7,8 @@ data class DiscoverProduct(
     val storeCategory: String = "",
     val name: String,
     val price: Double,
-    val imageUrl: String
+    val imageUrl: String,
+    val isBestseller: Boolean = false
 )
 
 data class MenuSection(
